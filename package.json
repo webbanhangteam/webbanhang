@@ -1,0 +1,16 @@
+{
+  "name": "shop-anh-thuan",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Website shop with auth, cart, product size, admin products, and payment APIs.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "check": "node --check server.js && node --check routes/auth.js && node --check routes/products.js && node --check web/testscript.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {}
+}

@@ -1,0 +1,173 @@
+[
+  {
+    "id": 1,
+    "name": "Air Force 1 Low Triple White",
+    "category": "shoes",
+    "displayCategory": "Sneaker",
+    "price": 2890000,
+    "image": "https://images.unsplash.com/photo-1600269452121-4f2416e55c28?auto=format&fit=crop&w=900&q=84",
+    "section": "new",
+    "sizes": [
+      39,
+      40,
+      41,
+      42,
+      43
+    ],
+    "stock": {
+      "39": 5,
+      "40": 8,
+      "41": 4,
+      "42": 3,
+      "43": 2
+    }
+  },
+  {
+    "id": 2,
+    "name": "Dunk Low Panda",
+    "category": "shoes",
+    "displayCategory": "Sneaker",
+    "price": 3290000,
+    "image": "https://images.unsplash.com/photo-1608231387042-66d1773070a5?auto=format&fit=crop&w=900&q=84",
+    "section": "new",
+    "sizes": [
+      39,
+      40,
+      41,
+      42,
+      43
+    ],
+    "stock": {
+      "39": 4,
+      "40": 6,
+      "41": 5,
+      "42": 2,
+      "43": 1
+    }
+  },
+  {
+    "id": 3,
+    "name": "Air Jordan 1 Retro Low",
+    "category": "shoes",
+    "displayCategory": "Sneaker",
+    "price": 3990000,
+    "image": "https://images.unsplash.com/photo-1552346154-21d32810aba3?auto=format&fit=crop&w=900&q=84",
+    "section": "new",
+    "sizes": [
+      39,
+      40,
+      41,
+      42,
+      43
+    ],
+    "stock": {
+      "39": 2,
+      "40": 4,
+      "41": 4,
+      "42": 3,
+      "43": 1
+    }
+  },
+  {
+    "id": 4,
+    "name": "New Balance 550 Cream",
+    "category": "shoes",
+    "displayCategory": "Sneaker",
+    "price": 3450000,
+    "image": "https://images.unsplash.com/photo-1579338559194-a162d19bf842?auto=format&fit=crop&w=900&q=84",
+    "section": "new",
+    "sizes": [
+      38,
+      39,
+      40,
+      41,
+      42
+    ],
+    "stock": {
+      "38": 3,
+      "39": 5,
+      "40": 4,
+      "41": 3,
+      "42": 2
+    }
+  },
+  {
+    "id": 5,
+    "name": "England Jersey 2026",
+    "category": "clothing",
+    "displayCategory": "Apparel",
+    "price": 790000,
+    "image": "./accesst/image/England.jpg",
+    "section": "products",
+    "sizes": [
+      "S",
+      "M",
+      "L",
+      "XL"
+    ],
+    "stock": {
+      "S": 5,
+      "M": 8,
+      "L": 6,
+      "XL": 3
+    }
+  },
+  {
+    "id": 6,
+    "name": "Sling Bag Minimal Black",
+    "category": "accessory",
+    "displayCategory": "Accessory",
+    "price": 450000,
+    "image": "https://images.unsplash.com/photo-1594223274512-ad4803739b7c?auto=format&fit=crop&w=900&q=84",
+    "section": "products",
+    "sizes": [],
+    "stock": {}
+  },
+  {
+    "id": 7,
+    "name": "Street Cap Washed Grey",
+    "category": "accessory",
+    "displayCategory": "Accessory",
+    "price": 320000,
+    "image": "https://images.unsplash.com/photo-1529958030586-3aae4ca485ff?auto=format&fit=crop&w=900&q=84",
+    "section": "products",
+    "sizes": [],
+    "stock": {}
+  },
+  {
+    "id": 8,
+    "name": "Boxy Tee Essential",
+    "category": "clothing",
+    "displayCategory": "Apparel",
+    "price": 390000,
+    "image": "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=84",
+    "section": "products",
+    "sizes": [
+      "S",
+      "M",
+      "L",
+      "XL"
+    ],
+    "stock": {
+      "S": 6,
+      "M": 10,
+      "L": 8,
+      "XL": 4
+    }
+  },
+  {
+    "id": 9,
+    "name": "Tangthuan",
+    "category": "accessory",
+    "displayCategory": "Accessory",
+    "price": 1200000,
+    "image": "https://scontent.fhan14-5.fna.fbcdn.net/v/t39.30808-6/651772791_1973789756876687_2858922915977786535_n.jpg?_nc_cat=104&ccb=1-7&_nc_sid=1d70fc&_nc_ohc=C4N6tfgzGzUQ7kNvwH5Qlcn&_nc_oc=Adp4DTAu0G74AsbXE-HJDB8ow2ypzFUI3V2DsxE9zBBSjK51OZaAkIggNS3HVdR5RAM&_nc_zt=23&_nc_ht=scontent.fhan14-5.fna&_nc_gid=2CaVbW_TeAnnnjMixEdQyg&_nc_ss=7b2a8&oh=00_Af5c6_CGfpD4H-Up8wgNOo06vsYhSvyBe-BN5J1oyaBjsA&oe=6A03EB51",
+    "section": "new",
+    "sizes": [
+      "41"
+    ],
+    "stock": {
+      "41": 2
+    }
+  }
+]

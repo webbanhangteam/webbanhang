@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Chill n Free Store - sneaker, streetwear và phụ kiện chọn lọc, giao COD toàn quốc.">
+    <title>Shop Anh Thuan</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Oswald:wght@500;600;700&display=swap"
+        rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../bootstrap-5.3.8-dist/bootstrap-5.3.8-dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="top-strip">
+        <span>WEB nay de nop do an</span>
+    </div>
+
+    <header class="site-header sticky-top">
+        <nav class="navbar navbar-expand-lg">
+            <div class="container-fluid page-pad nav-shell">
+                <button class="menu-trigger" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileMenu"
+                    aria-controls="mobileMenu" aria-label="Mở menu">
+                    <i class="bi bi-list"></i>
+                </button>
+
+                <a class="brand" href="#home" aria-label="Shop Anh Thuan">
+                    <img src="./accesst/logo.png" alt="">
+                    <span style="font-family: 'Anton', sans-serif; font-size: 24px;">Shop Anh Thuan</span>
+                </a>
+                <div class="header-actions">
+                    <button class="icon-btn" type="button" data-bs-toggle="modal" data-bs-target="#searchModal"
+                        aria-label="Tìm kiếm">
+                        <i class="bi bi-search"></i>
+                    </button>
+                    <a class="icon-btn d-none d-sm-inline-flex" href="#account" id="accountButton" aria-label="Tài khoản">
+                        <i class="bi bi-person"></i>
+                    </a>
+                    <button class="cart-trigger" type="button" data-bs-toggle="offcanvas" data-bs-target="#cartDrawer"
+                        aria-controls="cartDrawer" aria-label="Giỏ hàng">
+                        <i class="bi bi-bag"></i>
+                        <span id="cartCount">0</span>
+                    </button>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <div class="offcanvas offcanvas-start mobile-menu" tabindex="-1" id="mobileMenu" aria-labelledby="mobileMenuLabel">
+        <div class="offcanvas-header">
+            <h2 class="offcanvas-title" id="mobileMenuLabel">Shop Anh Thuan</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Đóng"></button>
+        </div>
+        <div class="offcanvas-body">
+            <div class="menu-section">
+                <p class="menu-label">Navigation</p>
+                <a href="#home">Trang chủ</a>
+                <a href="#new">Mới ra mắt</a>
+                <a href="#products">Sản phẩm</a>
+            </div>
+            <div class="menu-section">
+                <p class="menu-label">Khám phá</p>
+                <a href="#album">Album</a>
+                <a href="#blog">Blog</a>
+                <a href="#account">Tài khoản</a>
+            </div>
+            <div class="menu-section">
+                <p class="menu-label">Hỗ trợ</p>
+                <a href="#contact">Liên hệ</a>
+                <a href="#">Chính sách bảo mật</a>
+                <a href="#">FAQ</a>
+            </div>
+        </div>
+    </div>
+
+    <main id="home">
+        <section class="hero">
+            <div id="heroCarousel" class="carousel slide" data-bs-ride="carousel">
+                <div class="carousel-indicators">
+                    <button type="button" data-bs-target="#heroCarousel" data-bs-slide-to="0" class="active"
+                        aria-current="true" aria-label="Slide 1"></button>
+                    <button type="button" data-bs-target="#heroCarousel" data-bs-slide-to="1"
+                        aria-label="Slide 2"></button>
+                    <button type="button" data-bs-target="#heroCarousel" data-bs-slide-to="2"
+                        aria-label="Slide 3"></button>
+                </div>
+                <div class="carousel-inner">
+                    <article class="carousel-item active">
+                        <img src="https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=1900&q=84"
+                            class="hero-img" alt="Sneaker trắng trên nền tối">
+                        <div class="hero-copy">
+                             <h1 style="font-size: 50px; font-family: 'Anton', sans-serif;">Sneaker chẤt vãi L</h1>
+                            <a href="#new" class="primary-link">Xem sản phẩm mới</a>
+                        </div>
+                    </article>
+                    <article class="carousel-item">
+                        <img src="https://images.unsplash.com/photo-1556906781-9a412961c28c?auto=format&fit=crop&w=1900&q=84"
+                            class="hero-img" alt="Kệ giày sneaker nhiều màu">
+                        <div class="hero-copy">
+                            <h2 style="font-size: 80px; font-family: 'Anton', sans-serif;">Giày, áo và phụ kiện cùng một tinh thần.</h2>
+                            <a href="#products" class="primary-link">Mua ngay</a>
+                        </div>
+                    </article>
+                    <article class="carousel-item">
+                        <img src="https://images.unsplash.com/photo-1605348532760-6753d2c43329?auto=format&fit=crop&w=1900&q=84"
+                            class="hero-img" alt="Sneaker streetwear">
+                        <div class="hero-copy">
+
+                            <h2 style="font-size: 80px; font-family: 'Anton', sans-serif;">Boi phố chuẩn Hà Nội gốc 36</h2>
+                            <a href="#contact" class="primary-link">Liên hệ shop</a>
+                        </div>
+                    </article>
+                </div>
+                <button class="carousel-control-prev" type="button" data-bs-target="#heroCarousel" data-bs-slide="prev"
+                    aria-label="Slide trước">
+                    <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                </button>
+                <button class="carousel-control-next" type="button" data-bs-target="#heroCarousel" data-bs-slide="next"
+                    aria-label="Slide sau">
+                    <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                </button>
+            </div>
+        </section>
+
+        <section class="feature-grid page-pad">
+            <a href="#new" class="feature-tile feature-large">
+                <img src="https://images.unsplash.com/photo-1491553895911-0055eca6402d?auto=format&fit=crop&w=1200&q=84"
+                    alt="Sneaker Nike đặt nghiêng">
+                <span>Sản phẩm mới</span>
+            </a>
+            <a href="#accessories" class="feature-tile">
+                <img src="./accesst/image/angel-sphere-len-mau-nam.jpg"
+                    alt="Áo khoác streetwear">
+                <span>Phụ kiện</span>
+            </a>
+            <a href="#album" class="feature-tile">
+                <img src="./accesst/image/England.jpg" alt="Sản phẩm local">
+                <span>Album</span>
+            </a>
+        </section>
+
+        <section id="new" class="section page-pad">
+            <div class="section-head">
+                <p></p>
+                <h2>Sản phẩm mới</h2>
+            </div>
+
+            <div class="product-grid" id="productGrid">
+                <article class="product-card" data-name="Air Force 1 Low Triple White" data-category="Sneaker"
+                    data-price="2890000">
+                    <button class="wishlist-btn" type="button" aria-label="Yêu thích"><i
+                            class="bi bi-heart"></i></button>
+                    <a class="product-media" href="#product-detail">
+                        <img src="https://images.unsplash.com/photo-1600269452121-4f2416e55c28?auto=format&fit=crop&w=900&q=84"
+                            alt="Air Force 1 Low Triple White">
+                    </a>
+                    <div class="product-info">
+                        <span>Sneaker</span>
+                        <h3>Air Force 1 Low Triple White</h3>
+                        <div class="product-bottom">
+                            <strong>2.890.000đ</strong>
+                            <button class="add-to-cart" type="button">Thêm</button>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="product-card" data-name="Dunk Low Panda" data-category="Sneaker" data-price="3290000">
+                    <button class="wishlist-btn" type="button" aria-label="Yêu thích"><i
+                            class="bi bi-heart"></i></button>
+                    <a class="product-media" href="#product-detail">
+                        <img src="https://images.unsplash.com/photo-1608231387042-66d1773070a5?auto=format&fit=crop&w=900&q=84"
+                            alt="Dunk Low Panda">
+                    </a>
+                    <div class="product-info">
+                        <span>Sneaker</span>
+                        <h3>Dunk Low Panda</h3>
+                        <div class="product-bottom">
+                            <strong>3.290.000đ</strong>
+                            <button class="add-to-cart" type="button">Thêm</button>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="product-card" data-name="Air Jordan 1 Retro Low" data-category="Sneaker"
+                    data-price="3990000">
+                    <button class="wishlist-btn" type="button" aria-label="Yêu thích"><i
+                            class="bi bi-heart"></i></button>
+                    <a class="product-media" href="#product-detail">
+                        <img src="https://images.unsplash.com/photo-1552346154-21d32810aba3?auto=format&fit=crop&w=900&q=84"
+                            alt="Air Jordan 1 Retro Low">
+                    </a>
+                    <div class="product-info">
+                        <span>Sneaker</span>
+                        <h3>Air Jordan 1 Retro Low</h3>
+                        <div class="product-bottom">
+                            <strong>3.990.000đ</strong>
+                            <button class="add-to-cart" type="button">Thêm</button>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="product-card" data-name="New Balance 550 Cream" data-category="Sneaker"
+                    data-price="3450000">
+                    <button class="wishlist-btn" type="button" aria-label="Yêu thích"><i
+                            class="bi bi-heart"></i></button>
+                    <a class="product-media" href="#product-detail">
+                        <img src="https://images.unsplash.com/photo-1579338559194-a162d19bf842?auto=format&fit=crop&w=900&q=84"
+                            alt="New Balance 550 Cream">
+                    </a>
+                    <div class="product-info">
+                        <span>Sneaker</span>
+                        <h3>New Balance 550 Cream</h3>
+                        <div class="product-bottom">
+                            <strong>3.450.000đ</strong>
+                            <button class="add-to-cart" type="button">Thêm</button>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section id="products" class="section page-pad product-showcase">
+            <div class="section-head">
+                <h2>Tất cả sản phẩm</h2>
+            </div>
+
+            <div class="category-tabs" aria-label="Bộ lọc danh mục">
+                <button class="active" type="button" data-filter="all">Tất cả</button>
+                <button type="button" data-filter="Sneaker">Sneaker</button>
+                <button type="button" data-filter="Apparel">Áo</button>
+                <button type="button" data-filter="Accessory">Phụ kiện</button>
+            </div>
+
+            <div class="product-grid secondary-products">
+                <article class="product-card" data-name="England Jersey 2026" data-category="Apparel"
+                    data-price="790000">
+                    <a class="product-media" href="#product-detail">
+                        <img src="./accesst/image/England.jpg" alt="England Jersey 2026">
+                    </a>
+                    <div class="product-info">
+                        <span>Apparel</span>
+                        <h3>England Jersey 2026</h3>
+                        <div class="product-bottom">
+                            <strong>790.000đ</strong>
+                            <button class="add-to-cart" type="button">Thêm</button>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="product-card" data-name="Sling Bag Minimal Black" data-category="Accessory"
+                    data-price="450000">
+                    <a class="product-media" href="#product-detail">
+                        <img src="https://images.unsplash.com/photo-1594223274512-ad4803739b7c?auto=format&fit=crop&w=900&q=84"
+                            alt="Sling Bag Minimal Black">
+                    </a>
+                    <div class="product-info">
+                        <span>Accessory</span>
+                        <h3>Sling Bag Minimal Black</h3>
+                        <div class="product-bottom">
+                            <strong>450.000đ</strong>
+                            <button class="add-to-cart" type="button">Thêm</button>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="product-card" data-name="Street Cap Washed Grey" data-category="Accessory"
+                    data-price="320000">
+                    <a class="product-media" href="#product-detail">
+                        <img src="https://images.unsplash.com/photo-1529958030586-3aae4ca485ff?auto=format&fit=crop&w=900&q=84"
+                            alt="Street Cap Washed Grey">
+                    </a>
+                    <div class="product-info">
+                        <span>Accessory</span>
+                        <h3>Street Cap Washed Grey</h3>
+                        <div class="product-bottom">
+                            <strong>320.000đ</strong>
+                            <button class="add-to-cart" type="button">Thêm</button>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="product-card" data-name="Boxy Tee Essential" data-category="Apparel"
+                    data-price="390000">
+                    <a class="product-media" href="#product-detail">
+                        <img src="https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=84"
+                            alt="Boxy Tee Essential">
+                    </a>
+                    <div class="product-info">
+                        <span>Apparel</span>
+                        <h3>Boxy Tee Essential</h3>
+                        <div class="product-bottom">
+                            <strong>390.000đ</strong>
+                            <button class="add-to-cart" type="button">Thêm</button>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <section id="accessories" class="wide-promo" style="position: relative;">
+            <img src="./accesst/image/test.jpg?auto=format&fit=crop&w=1200&q=84"
+                alt="Streetwear lookbook">
+            <div class="wide-promo-copy">
+                <h2 style="margin: 0; font-size: 80px;font-family: 'Script';">Hoàn thiện outfit bằng những món nhỏ nhưng đúng chất.</h2>
+                <a href="#products" class="light-link">Xem phụ kiện</a>
+            </div>
+        </section>
+
+        <section id="product-detail" class="section page-pad detail-section">
+            <div class="detail-grid">
+                <div class="detail-gallery">
+                    <img src="https://images.unsplash.com/photo-1600269452121-4f2416e55c28?auto=format&fit=crop&w=1200&q=84"
+                        alt="Chi tiết sneaker trắng">
+                    <div class="thumbs">
+                        <img src="https://images.unsplash.com/photo-1543508282-6319a3e2621f?auto=format&fit=crop&w=500&q=84"
+                            alt="Góc bên sneaker">
+                        <img src="https://images.unsplash.com/photo-1605348532760-6753d2c43329?auto=format&fit=crop&w=500&q=84"
+                            alt="Sneaker on feet">
+                        <img src="https://images.unsplash.com/photo-1515955656352-a1fa3ffcd111?auto=format&fit=crop&w=500&q=84"
+                            alt="Chi tiết đế giày">
+                    </div>
+                </div>
+                <article class="detail-card">
+                    <p class="label">Best seller</p>
+                    <h2>Air Force 1 Low Triple White</h2>
+                    <div class="rating"><i class="bi bi-star-fill"></i> 4.9 <span>184 đánh giá</span></div>
+                    <strong class="detail-price">2.890.000đ</strong>
+                    <p class="detail-desc">Form cổ điển, màu trắng dễ phối, phù hợp đi học, đi làm và các outfit tối
+                        giản. Sản phẩm được kiểm tra trước khi giao.</p>
+                    <div class="size-list">
+                        <button type="button">39</button>
+                        <button type="button" class="selected">40</button>
+                        <button type="button">41</button>
+                        <button type="button">42</button>
+                        <button type="button">43</button>
+                    </div>
+                    <button class="black-btn add-detail-cart" type="button" data-name="Air Force 1 Low Triple White"
+                        data-price="2890000">Thêm vào giỏ</button>
+                </article>
+            </div>
+        </section>
+
+        <section class="benefits page-pad">
+            <article>
+                <i class="bi bi-truck"></i>
+                <h3>Ship COD toàn quốc</h3>
+                <p>Kiểm tra đơn trước khi nhận, hỗ trợ đóng gói kỹ.</p>
+            </article>
+            <article>
+                <i class="bi bi-gift"></i>
+                <h3>Quà tặng đơn hàng</h3>
+                <p>Đơn đạt mốc sẽ nhận vớ, sticker hoặc voucher.</p>
+            </article>
+            <article>
+                <i class="bi bi-shield-check"></i>
+                <h3>Sản phẩm được kiểm tra</h3>
+                <p>Shop rà size, tình trạng và ảnh thật trước khi gửi.</p>
+            </article>
+        </section>
+
+        <section id="album" class="section page-pad album-section">
+            <div class="section-head">
+                <p>Lookbook</p>
+                <h2>Album</h2>
+            </div>
+            <div class="album-grid">
+                <img src="./accesst/image/686915400_957856023667984_5178692997048394526_n.jpg"
+                    alt="Lookbook sneaker 1">
+                <img src="https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=900&q=84"
+                    alt="Lookbook streetwear 2">
+                <img src="https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?auto=format&fit=crop&w=900&q=84"
+                    alt="Lookbook streetwear 3">
+            </div>
+        </section>
+
+        <section id="blog" class="section page-pad blog-section">
+            <div class="section-head">
+                <p>Journal</p>
+                <h2>Blog</h2>
+            </div>
+            <div class="blog-grid">
+                <article>
+                    <span>Guide</span>
+                    <h3>Cách chọn size sneaker khi đặt online</h3>
+                    <p>Đo chiều dài bàn chân, đối chiếu bảng size và ưu tiên form giày bạn đã từng mang.</p>
+                </article>
+                <article>
+                    <span>Care</span>
+                    <h3>Giữ giày trắng sạch lâu hơn</h3>
+                    <p>Lau nhẹ sau mỗi lần đi, tránh phơi trực tiếp và dùng cây giữ form nếu có.</p>
+                </article>
+                <article>
+                    <span>Style</span>
+                    <h3>3 outfit tối giản với một đôi sneaker trắng</h3>
+                    <p>Denim, quần ống suông và áo boxy là bộ ba dễ áp dụng cho cả tuần.</p>
+                </article>
+            </div>
+        </section>
+
+        <section id="account" class="account-band page-pad">
+            <div>
+                <p>Tài khoản thành viên</p>
+                <h2>Lưu đơn hàng, nhận ưu đãi và cập nhật drop mới.</h2>
+            </div>
+            <div class="account-tools">
+                <form class="signup-form">
+                    <input type="email" placeholder="Email của bạn" aria-label="Email của bạn">
+                    <button type="button">Đăng ký</button>
+                </form>
+                <div class="member-actions">
+                    <p id="accountStatus">Chưa đăng nhập</p>
+                    <button class="outline-btn" type="button" id="openAuthButton">Đăng nhập / Đăng ký</button>
+                    <button class="black-btn" type="button" id="logoutButton" hidden>Đăng xuất</button>
+                </div>
+            </div>
+        </section>
+
+        <section id="adminPanel" class="section page-pad admin-panel" hidden>
+            <div class="section-head">
+                <p>Admin</p>
+                <h2>Quản lý sản phẩm</h2>
+            </div>
+            <div class="admin-grid">
+                <form id="adminProductForm" class="admin-form">
+                    <input type="hidden" id="adminProductId">
+                    <label>
+                        Tên sản phẩm
+                        <input id="adminName" type="text" required>
+                    </label>
+                    <label>
+                        Danh mục
+                        <select id="adminCategory">
+                            <option value="shoes">Sneaker</option>
+                            <option value="clothing">Apparel</option>
+                            <option value="accessory">Accessory</option>
+                        </select>
+                    </label>
+                    <label>
+                        Giá
+                        <input id="adminPrice" type="number" min="0" step="1000" required>
+                    </label>
+                    <label>
+                        Ảnh
+                        <input id="adminImage" type="text" placeholder="URL hoặc đường dẫn ảnh">
+                    </label>
+                    <label>
+                        Size
+                        <input id="adminSizes" type="text" placeholder="39,40,41 hoặc S,M,L">
+                    </label>
+                    <label>
+                        Tồn kho
+                        <input id="adminStock" type="text" placeholder="39:5,40:3 hoặc S:5,M:8">
+                    </label>
+                    <label>
+                        Khu hiển thị
+                        <select id="adminSection">
+                            <option value="products">Tất cả sản phẩm</option>
+                            <option value="new">Sản phẩm mới</option>
+                        </select>
+                    </label>
+                    <div class="admin-actions">
+                        <button class="black-btn" type="submit">Lưu sản phẩm</button>
+                        <button class="outline-btn" type="button" id="cancelAdminEdit">Hủy sửa</button>
+                    </div>
+                    <p id="adminMessage" class="checkout-message"></p>
+                </form>
+                <div class="admin-table-wrap">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Sản phẩm</th>
+                                <th>Danh mục</th>
+                                <th>Giá</th>
+                                <th>Tồn kho</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="adminProductsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer id="contact" class="footer page-pad">
+        <div class="footer-grid">
+            <div class="footer-brand">
+                <a class="brand" href="#home">
+                    <img src="./accesst/logo.png" alt="">
+                    <span>TANGTHUAN STORE</span>
+                </a>
+                <p>Sắp tới bán đồ tại Hà Nội.</p>
+                <ul>
+                    <li><a href="https://www.facebook.com/ThuajNguyxn" target="_blank" rel="noreferrer"><i
+                                class="bi bi-facebook"></i> Facebook</a></li>
+                    <li><a href="https://www.instagram.com/thuaj.nguyxn/" target="_blank" rel="noreferrer"><i
+                                class="bi bi-instagram"></i> Instagram</a></li>
+                    <li><a href="https://www.tiktok.com/@thuaj.nguyn" target="_blank" rel="noreferrer"><i
+                                class="bi bi-tiktok"></i> TikTok</a></li>
+                </ul>
+
+            </div>
+            <div>
+                <h3>Liên hệ</h3>
+                <p><i class="bi bi-telephone"></i> +84 392 230 313</p>
+                <p><i class="bi bi-geo-alt"></i> số 141 Chiến Thắng, Hà Nội</p>
+                <p><i class="bi bi-envelope"></i> CT080256@act.edu.vn</p>
+            </div>
+            <div>
+                <h3>Chính sách</h3>
+                <a href="#">Chính sách bảo mật</a>
+                <a href="#">FAQ</a>
+                <a href="#">Bảo hành và đổi trả</a>
+                <a href="#">Giao hàng hỏa tốc</a>
+            </div>
+            <div>
+                <h3>Thông tin</h3>
+                <p>Hộ kinh doanh: Nguyen Tang Thuan</p>
+                <p>Giờ mở cửa: 0h - 24h</p>
+            </div>
+        </div>
+    </footer>
+
+    <div class="modal fade search-modal" id="searchModal" tabindex="-1" aria-labelledby="searchModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title" id="searchModalLabel">Tìm kiếm sản phẩm</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="search-box">
+                        <i class="bi bi-search"></i>
+                        <input id="searchInput" type="search" placeholder="Nhập tên sản phẩm, danh mục..."
+                            aria-label="Tìm kiếm sản phẩm">
+                    </div>
+                    <div id="searchResults" class="search-results"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade auth-modal" id="authModal" tabindex="-1" aria-labelledby="authModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title" id="authModalLabel">Tài khoản</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
+                </div>
+                <div class="modal-body">
+                    <ul class="nav nav-tabs auth-tabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="loginTab" data-bs-toggle="tab"
+                                data-bs-target="#loginPane" type="button" role="tab">Đăng nhập</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="registerTab" data-bs-toggle="tab"
+                                data-bs-target="#registerPane" type="button" role="tab">Đăng ký</button>
+                        </li>
+                    </ul>
+                    <div class="tab-content auth-content">
+                        <div class="tab-pane fade show active" id="loginPane" role="tabpanel" aria-labelledby="loginTab">
+                            <form id="loginForm" class="auth-form">
+                                <label>
+                                    Username
+                                    <input id="loginUsername" type="text" autocomplete="username" required>
+                                </label>
+                                <label>
+                                    Password
+                                    <input id="loginPassword" type="password" autocomplete="current-password" required>
+                                </label>
+                                <button class="black-btn" type="submit">Đăng nhập</button>
+                                <p id="loginMessage" class="auth-message"></p>
+                            </form>
+                        </div>
+                        <div class="tab-pane fade" id="registerPane" role="tabpanel" aria-labelledby="registerTab">
+                            <form id="registerForm" class="auth-form">
+                                <label>
+                                    Username
+                                    <input id="registerUsername" type="text" autocomplete="username" required>
+                                </label>
+                                <label>
+                                    Password
+                                    <input id="registerPassword" type="password" autocomplete="new-password" required>
+                                </label>
+                                <button class="black-btn" type="submit">Đăng ký</button>
+                                <p id="registerMessage" class="auth-message"></p>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="offcanvas offcanvas-end cart-drawer" tabindex="-1" id="cartDrawer" aria-labelledby="cartDrawerLabel">
+        <div class="offcanvas-header">
+            <h2 class="offcanvas-title" id="cartDrawerLabel">Giỏ hàng</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Đóng"></button>
+        </div>
+        <div class="offcanvas-body">
+            <div id="cartItems" class="cart-items">
+                <p class="empty-cart">Chưa có sản phẩm trong giỏ.</p>
+            </div>
+            <div class="drawer-summary">
+                <div><span>Tạm tính</span><strong id="subtotal">0đ</strong></div>
+                <p id="checkoutMessage" class="checkout-message"></p>
+                <button class="black-btn" type="button" id="momoCheckout">Thanh toán MoMo</button>
+                <button class="outline-btn" type="button" id="zaloCheckout">Thanh toán ZaloPay</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../bootstrap-5.3.8-dist/bootstrap-5.3.8-dist/js/bootstrap.bundle.min.js"></script>
+    <script src="testscript.js">
+
+    </script>
+</body>
+
+</html>
