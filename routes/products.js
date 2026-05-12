@@ -271,7 +271,7 @@ function normalizeProduct(input, current, products) {
   }
 
   return {
-    id: Number(base.id || input.id || nextId),
+    id: current ? Number(base.id) : nextId,
     name,
     category,
     displayCategory: normalizeDisplayCategory(input.displayCategory || base.displayCategory, category),

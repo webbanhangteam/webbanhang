@@ -419,6 +419,22 @@
                     <button class="outline-btn" type="button" id="openAuthButton">Đăng nhập / Đăng ký</button>
                     <button class="black-btn" type="button" id="logoutButton" hidden>Đăng xuất</button>
                 </div>
+                <form id="profileForm" class="profile-form" hidden>
+                    <label>
+                        Họ tên
+                        <input id="profileFullName" type="text" autocomplete="name">
+                    </label>
+                    <label>
+                        Số điện thoại
+                        <input id="profilePhone" type="tel" autocomplete="tel">
+                    </label>
+                    <label>
+                        Địa chỉ giao hàng
+                        <input id="profileAddress" type="text" autocomplete="street-address">
+                    </label>
+                    <button class="black-btn" type="submit">Lưu thông tin</button>
+                    <p id="profileMessage" class="checkout-message"></p>
+                </form>
             </div>
         </section>
 
@@ -616,6 +632,7 @@
                 <p id="checkoutMessage" class="checkout-message"></p>
                 <button class="black-btn" type="button" id="momoCheckout">Thanh toán MoMo</button>
                 <button class="outline-btn" type="button" id="zaloCheckout">Thanh toán ZaloPay</button>
+                <button class="outline-btn" type="button" id="codCheckout">Thanh toán khi nhận hàng (COD)</button>
             </div>
         </div>
     </div>

@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "check": "node --check server.js && node --check routes/auth.js && node --check routes/products.js && node --check web/testscript.js"
+    "check": "node --check server.js && node --check routes/auth.js && node --check routes/products.js && node --check middleware/adminMiddleware.js && node --check web/testscript.js"
   },
   "engines": {
     "node": ">=18"

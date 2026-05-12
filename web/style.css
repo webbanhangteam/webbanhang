@@ -869,6 +869,7 @@ a {
 .signup-form input,
 .search-box input,
 .auth-form input,
+.profile-form input,
 .admin-form input,
 .admin-form select,
 .product-size-select {
@@ -882,6 +883,7 @@ a {
 .signup-form input:focus,
 .search-box input:focus,
 .auth-form input:focus,
+.profile-form input:focus,
 .admin-form input:focus,
 .admin-form select:focus,
 .product-size-select:focus {
@@ -981,6 +983,7 @@ a {
 }
 
 .auth-form label,
+.profile-form label,
 .admin-form label {
     display: grid;
     gap: 7px;
@@ -988,6 +991,15 @@ a {
     font-size: 0.78rem;
     font-weight: 800;
     text-transform: uppercase;
+}
+
+.profile-form {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: white;
 }
 
 .auth-message {

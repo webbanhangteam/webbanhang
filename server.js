@@ -3,20 +3,25 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { ensureUserDataFile, handleAuthRoute } = require('./routes/auth');
-const { ensureProductsDataFile, handleProductsRoute } = require('./routes/products');
-const { isAdminRequest, sendForbidden } = require('./middleware/adminMiddleware');
+const { ensureUserDataFile, handleAuthRoute, getUserByUsername } = require('./routes/auth');
+const { ensureProductsDataFile, handleProductsRoute, readProducts } = require('./routes/products');
+const { getRequestToken, isAdminRequest, sendForbidden } = require('./middleware/adminMiddleware');
 
 loadEnvFile(path.join(__dirname, '.env'));
 
 const root = path.resolve(__dirname);
+const webRoot = path.join(root, 'web');
+const assetsRoot = path.join(webRoot, 'accesst');
+const bootstrapRoot = path.join(root, 'bootstrap-5.3.8-dist');
 const port = process.env.PORT || 3000;
 const host = process.env.HOST || '0.0.0.0';
 const publicBaseUrl = (process.env.PUBLIC_BASE_URL || process.env.BASE_URL || `http://localhost:${port}`).replace(/\/+$/, '');
 const orders = {};
+const sessions = new Map();
 const userDataFile = path.join(root, 'data', 'DATA.txt');
 const productsDataFile = path.join(root, 'data', 'products.json');
-const maxBodySize = Number(process.env.MAX_BODY_SIZE || 1024 * 1024);
+const maxBodySize = parsePositiveNumber(process.env.MAX_BODY_SIZE, 1024 * 1024);
+const sessionMaxAgeMs = parsePositiveNumber(process.env.SESSION_MAX_AGE_MS, 1000 * 60 * 60 * 12);
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -90,7 +95,11 @@ async function handleApi(req, res, requestUrl) {
     productsDataFile,
     readRequestBody,
     sendJson,
-    isAdminRequest,
+    createSession,
+    destroySession,
+    getSessionFromRequest,
+    updateSessionUser,
+    isAdminRequest: req => isAdminRequest(req, getSessionFromRequest),
     sendForbidden
   };
 
@@ -137,7 +146,17 @@ async function handleApi(req, res, requestUrl) {
     return;
   }
 
+  if (req.method === 'POST' && requestUrl.pathname === '/api/payments/cod') {
+    await createCodOrder(req, res);
+    return;
+  }
+
   if (req.method === 'GET' && requestUrl.pathname === '/api/orders') {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
     sendJson(res, 200, { ok: true, orders });
     return;
   }
@@ -155,9 +174,10 @@ function isApiRequestPath(pathname) {
 
 async function createMomoPayment(req, res) {
   const body = await readRequestBody(req);
-  const amount = normalizeAmount(body.amount);
-  if (!amount) {
-    sendJson(res, 400, { ok: false, message: 'amount khong hop le' });
+  const order = createOrderFromCart(body.items);
+
+  if (!order.ok) {
+    sendJson(res, 400, { ok: false, message: order.message });
     return;
   }
 
@@ -169,6 +189,7 @@ async function createMomoPayment(req, res) {
 
   const requestId = `${momoConfig.partnerCode}${Date.now()}`;
   const orderId = requestId;
+  const amount = order.amount;
   const orderInfo = body.orderInfo || 'Thanh toan don hang UrbanCart';
   const extraData = body.extraData || '';
   const requestType = 'captureWallet';
@@ -199,7 +220,7 @@ async function createMomoPayment(req, res) {
     lang: 'vi'
   };
 
-  orders[orderId] = createLocalOrder('momo', orderId, amount, body.items, orderInfo);
+  orders[orderId] = createLocalOrder('momo', orderId, order, orderInfo, getSessionFromRequest(req));
 
   try {
     const momoResponse = await postJson(momoConfig.endpoint, payload);
@@ -240,9 +261,10 @@ async function handleMomoIpn(req, res) {
 
 async function createZaloPayPayment(req, res) {
   const body = await readRequestBody(req);
-  const amount = normalizeAmount(body.amount);
-  if (!amount) {
-    sendJson(res, 400, { ok: false, message: 'amount khong hop le' });
+  const order = createOrderFromCart(body.items);
+
+  if (!order.ok) {
+    sendJson(res, 400, { ok: false, message: order.message });
     return;
   }
 
@@ -255,9 +277,10 @@ async function createZaloPayPayment(req, res) {
   const appTime = Date.now();
   const appTransId = `${formatDateYYMMDD(new Date())}_${appTime}`;
   const appUser = body.appUser || 'urbancart';
+  const amount = order.amount;
   const description = body.description || 'Thanh toan don hang UrbanCart';
   const embedData = JSON.stringify({ redirecturl: zalopayConfig.returnUrl });
-  const item = JSON.stringify(body.items || []);
+  const item = JSON.stringify(order.items);
   const raw = `${zalopayConfig.appId}|${appTransId}|${appUser}|${amount}|${appTime}|${embedData}|${item}`;
 
   const payload = {
@@ -273,7 +296,7 @@ async function createZaloPayPayment(req, res) {
     mac: hmacSha256(zalopayConfig.key1, raw)
   };
 
-  orders[appTransId] = createLocalOrder('zalopay', appTransId, amount, body.items, description);
+  orders[appTransId] = createLocalOrder('zalopay', appTransId, order, description, getSessionFromRequest(req));
 
   try {
     const zaloResponse = await postJson(zalopayConfig.createUrl, payload);
@@ -307,7 +330,14 @@ async function handleZaloPayCallback(req, res) {
     return;
   }
 
-  const parsed = JSON.parse(data);
+  let parsed;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    sendJson(res, 400, { return_code: -1, return_message: 'invalid data' });
+    return;
+  }
+
   const success = Number(parsed.return_code || parsed.resultCode || parsed.returncode || -1) === 1;
   updateOrderFromGateway(parsed.app_trans_id, success, parsed);
   sendJson(res, 200, { return_code: 1, return_message: 'OK' });
@@ -333,6 +363,48 @@ async function queryZaloPayStatus(req, res) {
   } catch (err) {
     sendJson(res, 502, { ok: false, message: 'Khong kiem tra duoc trang thai ZaloPay', error: err.message });
   }
+}
+
+async function createCodOrder(req, res) {
+  const sessionUser = getSessionFromRequest(req);
+  if (!sessionUser) {
+    sendJson(res, 401, { ok: false, message: 'Vui long dang nhap truoc khi dat COD' });
+    return;
+  }
+
+  const user = getUserByUsername(userDataFile, sessionUser.username);
+  if (!user) {
+    sendJson(res, 404, { ok: false, message: 'Khong tim thay tai khoan' });
+    return;
+  }
+
+  if (!hasDeliveryProfile(user)) {
+    sendJson(res, 400, { ok: false, message: 'Vui long cap nhat ten, so dien thoai va dia chi giao hang' });
+    return;
+  }
+
+  const body = await readRequestBody(req);
+  const order = createOrderFromCart(body.items);
+
+  if (!order.ok) {
+    sendJson(res, 400, { ok: false, message: order.message });
+    return;
+  }
+
+  const orderId = `COD${Date.now()}${crypto.randomBytes(3).toString('hex')}`;
+  const description = body.description || 'Thanh toan khi nhan hang';
+  orders[orderId] = createLocalOrder('cod', orderId, order, description, toOrderCustomer(user));
+  orders[orderId].status = 'COD_PENDING';
+
+  sendJson(res, 201, {
+    ok: true,
+    provider: 'cod',
+    orderId,
+    amount: order.amount,
+    items: order.items,
+    customer: orders[orderId].user,
+    message: 'Da tao don hang COD'
+  });
 }
 
 function serveStatic(pathname, res) {
@@ -364,23 +436,23 @@ function resolveStaticPath(pathname) {
   const route = decodedPath.replace(/\\/g, '/');
 
   if (route === '/' || route === '/index.html' || route === '/web' || route === '/web/') {
-    return safeResolve(root, 'web', 'index.html');
+    return safeResolve(webRoot, 'index.html');
   }
 
   if (route === '/style.css' || route === '/testscript.js') {
-    return safeResolve(root, 'web', route.slice(1));
+    return safeResolve(webRoot, route.slice(1));
   }
 
   if (route.startsWith('/accesst/')) {
-    return safeResolve(root, 'web', route.slice(1));
+    return safeResolve(assetsRoot, route.slice('/accesst/'.length));
   }
 
   if (route.startsWith('/web/')) {
-    return safeResolve(root, route.slice(1));
+    return safeResolve(webRoot, route.slice('/web/'.length));
   }
 
   if (route.startsWith('/bootstrap-5.3.8-dist/')) {
-    return safeResolve(root, route.slice(1));
+    return safeResolve(bootstrapRoot, route.slice('/bootstrap-5.3.8-dist/'.length));
   }
 
   return null;
@@ -502,7 +574,7 @@ function sendJson(res, statusCode, payload) {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,role,x-user-role,x-role,x-username',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Session-Token',
     'Content-Type': 'application/json; charset=utf-8'
   };
 
@@ -544,13 +616,186 @@ function normalizeAmount(value) {
   return Number.isInteger(amount) && amount > 0 ? amount : null;
 }
 
-function createLocalOrder(provider, orderId, amount, items, description) {
+function createSession(user) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAtMs = Date.now() + sessionMaxAgeMs;
+
+  sessions.set(token, {
+    user: {
+      username: user.username,
+      role: user.role,
+      fullName: user.fullName || '',
+      phone: user.phone || '',
+      address: user.address || ''
+    },
+    expiresAtMs
+  });
+
+  return {
+    token,
+    expiresAt: new Date(expiresAtMs).toISOString()
+  };
+}
+
+function getSessionFromRequest(req) {
+  const token = getRequestToken(req);
+  if (!token) return null;
+
+  const session = sessions.get(token);
+  if (!session) return null;
+
+  if (session.expiresAtMs <= Date.now()) {
+    sessions.delete(token);
+    return null;
+  }
+
+  return session.user;
+}
+
+function updateSessionUser(req, user) {
+  const token = getRequestToken(req);
+  if (!token || !sessions.has(token)) return;
+
+  const session = sessions.get(token);
+  session.user = {
+    username: user.username,
+    role: user.role,
+    fullName: user.fullName || '',
+    phone: user.phone || '',
+    address: user.address || ''
+  };
+}
+
+function destroySession(req) {
+  const token = getRequestToken(req);
+  if (token) sessions.delete(token);
+}
+
+function createOrderFromCart(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return {
+      ok: false,
+      message: 'Gio hang trong'
+    };
+  }
+
+  const products = readProducts(productsDataFile);
+  const orderItems = [];
+
+  for (const item of items) {
+    const productId = Number(item.productId || item.id);
+    const quantity = Number(item.quantity || item.qty);
+    const product = products.find(entry => Number(entry.id) === productId);
+
+    if (!product) {
+      return {
+        ok: false,
+        message: 'San pham khong ton tai'
+      };
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return {
+        ok: false,
+        message: 'So luong san pham khong hop le'
+      };
+    }
+
+    const sizes = getProductSizes(product);
+    const size = item.size === null || item.size === undefined ? '' : String(item.size).trim();
+
+    if (requiresProductSize(product)) {
+      if (!size) {
+        return {
+          ok: false,
+          message: 'Vui long chon size'
+        };
+      }
+
+      if (!sizes.includes(size)) {
+        return {
+          ok: false,
+          message: 'Size san pham khong hop le'
+        };
+      }
+
+      const stock = Number(product.stock?.[size] || 0);
+      if (quantity > stock) {
+        return {
+          ok: false,
+          message: 'So luong vuot qua ton kho'
+        };
+      }
+    }
+
+    const unitPrice = Number(product.price) || 0;
+    if (!normalizeAmount(unitPrice)) {
+      return {
+        ok: false,
+        message: 'Gia san pham khong hop le'
+      };
+    }
+
+    orderItems.push({
+      productId: Number(product.id),
+      name: product.name,
+      size: size || null,
+      quantity,
+      unitPrice,
+      lineTotal: unitPrice * quantity
+    });
+  }
+
+  const amount = orderItems.reduce((sum, item) => sum + item.lineTotal, 0);
+
+  if (!normalizeAmount(amount)) {
+    return {
+      ok: false,
+      message: 'amount khong hop le'
+    };
+  }
+
+  return {
+    ok: true,
+    amount,
+    items: orderItems
+  };
+}
+
+function requiresProductSize(product) {
+  return ['shoes', 'clothing'].includes(product.category) || getProductSizes(product).length > 0;
+}
+
+function getProductSizes(product) {
+  return Array.isArray(product.sizes) ? product.sizes.map(size => String(size)) : [];
+}
+
+function hasDeliveryProfile(user) {
+  return Boolean(
+    String(user.fullName || '').trim() &&
+    String(user.phone || '').trim() &&
+    String(user.address || '').trim()
+  );
+}
+
+function toOrderCustomer(user) {
+  return {
+    username: user.username,
+    role: user.role,
+    fullName: String(user.fullName || '').trim(),
+    phone: String(user.phone || '').trim(),
+    address: String(user.address || '').trim()
+  };
+}
+
+function createLocalOrder(provider, orderId, order, description, user) {
   return {
     provider,
     orderId,
-    amount,
-    items: Array.isArray(items) ? items : [],
+    amount: order.amount,
+    items: order.items,
     description,
+    user: user || null,
     status: 'CREATED',
     createdAt: new Date().toISOString()
   };
@@ -567,6 +812,11 @@ function formatDateYYMMDD(date) {
   return String(date.getFullYear()).slice(-2) +
     String(date.getMonth() + 1).padStart(2, '0') +
     String(date.getDate()).padStart(2, '0');
+}
+
+function parsePositiveNumber(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
 function loadEnvFile(filePath) {
@@ -599,3 +849,4 @@ server.listen(port, host, () => {
   console.log(`Server chay tai http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
   console.log(`Public URL: ${publicBaseUrl}`);
 });
+//run codex resume 019e1db4-b126-7d21-9ebd-efd638ffee3b

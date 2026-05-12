@@ -7,8 +7,8 @@ const SESSION_KEY = 'shopSession';
 const CART_KEY = 'shopCart';
 
 let products = [];
-let cart = loadJson(CART_KEY, []);
-let currentUser = loadJson(SESSION_KEY, null);
+let cart = loadJson(CART_KEY, []).map(normalizeCartItem).filter(Boolean);
+let currentUser = normalizeSession(loadJson(SESSION_KEY, null));
 
 const cartCount = document.getElementById('cartCount');
 const cartItems = document.getElementById('cartItems');
@@ -22,6 +22,11 @@ const accountButton = document.getElementById('accountButton');
 const openAuthButton = document.getElementById('openAuthButton');
 const logoutButton = document.getElementById('logoutButton');
 const accountStatus = document.getElementById('accountStatus');
+const profileForm = document.getElementById('profileForm');
+const profileFullName = document.getElementById('profileFullName');
+const profilePhone = document.getElementById('profilePhone');
+const profileAddress = document.getElementById('profileAddress');
+const profileMessage = document.getElementById('profileMessage');
 const adminPanel = document.getElementById('adminPanel');
 const adminProductForm = document.getElementById('adminProductForm');
 const adminProductsBody = document.getElementById('adminProductsBody');
@@ -32,7 +37,9 @@ init();
 async function init() {
     products = extractProductsFromDom();
     bindStaticEvents();
+    await restoreSession();
     await loadProducts();
+    syncCartWithProducts();
     renderProducts();
     renderProductDetail();
     renderCart();
@@ -61,6 +68,10 @@ function bindStaticEvents() {
         startPayment('zalopay');
     });
 
+    document.getElementById('codCheckout').addEventListener('click', () => {
+        startCodCheckout();
+    });
+
     document.getElementById('loginForm').addEventListener('submit', async (event) => {
         event.preventDefault();
         await submitAuth('/login', {
@@ -80,23 +91,76 @@ function bindStaticEvents() {
     openAuthButton.addEventListener('click', showAuthModal);
 
     accountButton.addEventListener('click', (event) => {
-        if (!currentUser) {
+        if (!currentUser?.token) {
             event.preventDefault();
             showAuthModal();
         }
     });
 
-    logoutButton.addEventListener('click', () => {
-        localStorage.removeItem(SESSION_KEY);
-        currentUser = null;
-        updateAccountUi();
+    logoutButton.addEventListener('click', async () => {
+        await logout();
     });
+
+    profileForm.addEventListener('submit', submitProfile);
 
     adminProductForm.addEventListener('submit', submitAdminProduct);
 
     document.getElementById('cancelAdminEdit').addEventListener('click', () => {
         resetAdminForm();
     });
+}
+
+async function restoreSession() {
+    if (!currentUser?.token) {
+        clearSession();
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/auth/me', {
+            headers: authHeaders(false)
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.user) {
+            clearSession();
+            return;
+        }
+
+        currentUser = {
+            username: data.user.username,
+            role: data.user.role,
+            fullName: data.user.fullName || '',
+            phone: data.user.phone || '',
+            address: data.user.address || '',
+            token: currentUser.token,
+            expiresAt: currentUser.expiresAt || null
+        };
+        localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+    } catch {
+        clearSession();
+    }
+}
+
+async function logout() {
+    if (currentUser?.token) {
+        try {
+            await fetch('/logout', {
+                method: 'POST',
+                headers: authHeaders(false)
+            });
+        } catch {
+            // Local logout still happens if the network request fails.
+        }
+    }
+
+    clearSession();
+    updateAccountUi();
+}
+
+function clearSession() {
+    localStorage.removeItem(SESSION_KEY);
+    currentUser = null;
 }
 
 function handleDocumentClick(event) {
@@ -165,6 +229,41 @@ async function loadProducts() {
     } catch {
         products = products.length ? products : extractProductsFromDom();
     }
+}
+
+function syncCartWithProducts() {
+    cart = cart.map((item) => {
+        const product = products.find((entry) => Number(entry.id) === Number(item.productId));
+        if (!product) return null;
+
+        const size = item.size ? String(item.size) : '';
+        if (requiresSize(product)) {
+            const sizes = getProductSizes(product);
+            const stock = Number(product.stock?.[size] || 0);
+
+            if (!size || !sizes.includes(size) || stock <= 0) {
+                return null;
+            }
+
+            return {
+                productId: Number(product.id),
+                name: product.name,
+                size,
+                quantity: Math.min(Number(item.quantity) || 1, stock),
+                price: Number(product.price) || 0
+            };
+        }
+
+        return {
+            productId: Number(product.id),
+            name: product.name,
+            size: null,
+            quantity: Math.max(1, Number(item.quantity) || 1),
+            price: Number(product.price) || 0
+        };
+    }).filter(Boolean);
+
+    saveCart();
 }
 
 function renderProducts() {
@@ -249,9 +348,12 @@ function renderProductDetail() {
 
     if (sizeList) {
         const sizes = getProductSizes(product);
+        const firstAvailableIndex = sizes.findIndex((size) => {
+            return Number(product.stock?.[String(size)] || 0) > 0;
+        });
         sizeList.innerHTML = sizes.map((size, index) => {
             const disabled = Number(product.stock?.[String(size)] || 0) <= 0 ? ' disabled' : '';
-            const selected = index === 0 && !disabled ? ' class="selected"' : '';
+            const selected = index === firstAvailableIndex ? ' class="selected"' : '';
             return `<button type="button" data-size="${escapeAttr(size)}"${selected}${disabled}>${escapeHtml(size)}</button>`;
         }).join('');
     }
@@ -276,9 +378,9 @@ function applyActiveFilter() {
 }
 
 function addProductFromButton(button) {
-    const card = button.closest('[data-product-id]');
-    const productId = Number(button.dataset.productId || card?.dataset.productId || 0);
-    const product = products.find((item) => item.id === productId) || productFromCard(card, button);
+    const productContainer = button.closest('.product-card') || button.closest('.detail-card');
+    const productId = Number(button.dataset.productId || productContainer?.dataset.productId || 0);
+    const product = products.find((item) => item.id === productId) || productFromCard(productContainer, button);
 
     if (!product) return;
 
@@ -287,7 +389,7 @@ function addProductFromButton(button) {
         if (button.classList.contains('add-detail-cart')) {
             size = document.querySelector('.detail-card .size-list button.selected')?.dataset.size || '';
         } else {
-            size = card?.querySelector('.product-size-select')?.value || '';
+            size = productContainer?.querySelector('.product-size-select')?.value || '';
         }
 
         if (!size) {
@@ -431,10 +533,9 @@ async function startPayment(provider) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                amount,
                 orderInfo: 'Thanh toán đơn hàng Chill n Free',
                 description: 'Thanh toán đơn hàng Chill n Free',
-                items: cart
+                items: getCheckoutItems()
             })
         });
 
@@ -449,6 +550,66 @@ async function startPayment(provider) {
     } catch {
         checkoutMessage.textContent = 'Không kết nối được cổng thanh toán.';
     }
+}
+
+async function startCodCheckout() {
+    const amount = cart.reduce((sum, item) => {
+        return sum + Number(item.price || 0) * Number(item.quantity || 0);
+    }, 0);
+
+    if (!amount) {
+        checkoutMessage.textContent = 'Vui lòng thêm sản phẩm trước khi đặt COD.';
+        return;
+    }
+
+    if (!currentUser?.token) {
+        checkoutMessage.textContent = 'Vui lòng đăng nhập trước khi đặt COD.';
+        showAuthModal();
+        return;
+    }
+
+    if (!hasCompleteProfile(currentUser)) {
+        checkoutMessage.textContent = 'Vui lòng cập nhật tên, số điện thoại và địa chỉ ở tài khoản.';
+        location.hash = 'account';
+        profileFullName.focus();
+        return;
+    }
+
+    checkoutMessage.textContent = 'Đang tạo đơn COD...';
+
+    try {
+        const response = await fetch('/api/payments/cod', {
+            method: 'POST',
+            headers: authHeaders(true),
+            body: JSON.stringify({
+                description: 'Thanh toán khi nhận hàng',
+                items: getCheckoutItems()
+            })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            checkoutMessage.textContent = data.message || 'Không tạo được đơn COD.';
+            return;
+        }
+
+        cart = [];
+        saveCart();
+        renderCart();
+        checkoutMessage.textContent = `Đã tạo đơn COD ${data.orderId}.`;
+    } catch {
+        checkoutMessage.textContent = 'Không kết nối được server.';
+    }
+}
+
+function getCheckoutItems() {
+    return cart.map((item) => {
+        return {
+            productId: item.productId,
+            size: item.size,
+            quantity: item.quantity
+        };
+    });
 }
 
 async function submitAuth(url, payload, messageElement) {
@@ -469,9 +630,19 @@ async function submitAuth(url, payload, messageElement) {
             return;
         }
 
+        if (!data.token) {
+            messageElement.textContent = 'Phien dang nhap khong hop le.';
+            return;
+        }
+
         currentUser = {
             username: data.username,
-            role: data.role
+            role: data.role,
+            fullName: data.fullName || '',
+            phone: data.phone || '',
+            address: data.address || '',
+            token: data.token,
+            expiresAt: data.expiresAt || null
         };
         localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
         messageElement.textContent = 'Đăng nhập thành công.';
@@ -489,10 +660,12 @@ function showAuthModal() {
 }
 
 function updateAccountUi() {
-    if (!currentUser) {
+    if (!currentUser?.token) {
         accountStatus.textContent = 'Chưa đăng nhập';
         openAuthButton.hidden = false;
         logoutButton.hidden = true;
+        profileForm.hidden = true;
+        profileMessage.textContent = '';
         adminPanel.hidden = true;
         return;
     }
@@ -500,13 +673,59 @@ function updateAccountUi() {
     accountStatus.textContent = `${currentUser.username} - ${currentUser.role}`;
     openAuthButton.hidden = true;
     logoutButton.hidden = false;
+    profileForm.hidden = false;
+    profileFullName.value = currentUser.fullName || '';
+    profilePhone.value = currentUser.phone || '';
+    profileAddress.value = currentUser.address || '';
     adminPanel.hidden = currentUser.role !== 'Admin';
+}
+
+async function submitProfile(event) {
+    event.preventDefault();
+
+    if (!currentUser?.token) {
+        profileMessage.textContent = 'Vui lòng đăng nhập.';
+        showAuthModal();
+        return;
+    }
+
+    profileMessage.textContent = 'Đang lưu thông tin...';
+
+    try {
+        const response = await fetch('/api/auth/me', {
+            method: 'PUT',
+            headers: authHeaders(true),
+            body: JSON.stringify({
+                fullName: profileFullName.value,
+                phone: profilePhone.value,
+                address: profileAddress.value
+            })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            profileMessage.textContent = data.message || 'Không lưu được thông tin.';
+            return;
+        }
+
+        currentUser = {
+            ...currentUser,
+            fullName: data.user.fullName || '',
+            phone: data.user.phone || '',
+            address: data.user.address || ''
+        };
+        localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+        updateAccountUi();
+        profileMessage.textContent = 'Đã lưu thông tin tài khoản.';
+    } catch {
+        profileMessage.textContent = 'Không kết nối được server.';
+    }
 }
 
 async function submitAdminProduct(event) {
     event.preventDefault();
 
-    if (!currentUser || currentUser.role !== 'Admin') {
+    if (!currentUser?.token || currentUser.role !== 'Admin') {
         adminMessage.textContent = 'Bạn cần đăng nhập Admin.';
         return;
     }
@@ -592,7 +811,7 @@ function fillAdminForm(productId) {
 }
 
 async function deleteAdminProduct(productId) {
-    if (!currentUser || currentUser.role !== 'Admin') return;
+    if (!currentUser?.token || currentUser.role !== 'Admin') return;
     if (!confirm('Xóa sản phẩm này?')) return;
 
     try {
@@ -626,12 +845,23 @@ function resetAdminForm() {
     document.getElementById('adminProductId').value = '';
 }
 
+function authHeaders(includeJson = true) {
+    const headers = {};
+
+    if (includeJson) {
+        headers['Content-Type'] = 'application/json';
+    }
+
+    if (currentUser?.token) {
+        headers.Authorization = `Bearer ${currentUser.token}`;
+    }
+
+    return headers;
+}
+
 function adminHeaders() {
     return {
-        'Content-Type': 'application/json',
-        role: currentUser?.role || '',
-        'x-user-role': currentUser?.role || '',
-        'x-username': currentUser?.username || ''
+        ...authHeaders(true)
     };
 }
 
@@ -678,7 +908,8 @@ function requiresSize(product) {
 }
 
 function canAddQuantity(product, size, currentQuantity) {
-    if (!requiresSize(product) || !size) return true;
+    if (!requiresSize(product)) return true;
+    if (!size) return false;
     const stock = Number(product.stock?.[String(size)] || 0);
     return currentQuantity + 1 <= stock;
 }
@@ -745,6 +976,47 @@ function loadJson(key, fallback) {
     } catch {
         return fallback;
     }
+}
+
+function normalizeCartItem(item) {
+    if (!item || typeof item !== 'object') return null;
+
+    const productId = Number(item.productId || item.id);
+    const quantity = Number(item.quantity || item.qty);
+
+    if (!Number.isInteger(productId) || productId <= 0 || !Number.isInteger(quantity) || quantity <= 0) {
+        return null;
+    }
+
+    return {
+        productId,
+        name: String(item.name || ''),
+        size: item.size === null || item.size === undefined ? null : String(item.size),
+        quantity,
+        price: Number(item.price) || 0
+    };
+}
+
+function normalizeSession(session) {
+    if (!session || typeof session !== 'object' || !session.token) return null;
+
+    return {
+        username: String(session.username || ''),
+        role: session.role === 'Admin' ? 'Admin' : 'User',
+        fullName: String(session.fullName || ''),
+        phone: String(session.phone || ''),
+        address: String(session.address || ''),
+        token: String(session.token),
+        expiresAt: session.expiresAt || null
+    };
+}
+
+function hasCompleteProfile(user) {
+    return Boolean(
+        String(user?.fullName || '').trim() &&
+        String(user?.phone || '').trim() &&
+        String(user?.address || '').trim()
+    );
 }
 
 function escapeHtml(value) {
