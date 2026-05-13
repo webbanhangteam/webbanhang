@@ -1,6 +1,6 @@
 # Shop Anh Thuan
 
-Website shop Node.js co frontend tinh, API dang nhap/dang ky, ho so tai khoan, gio hang theo size, quan tri san pham va thanh toan MoMo/ZaloPay/COD.
+Website shop Node.js co frontend tinh, MySQL database, API dang nhap/dang ky, ho so tai khoan, gio hang theo size, quan tri san pham va thanh toan MoMo/ZaloPay/COD.
 
 ## Chay local
 
@@ -21,7 +21,7 @@ Kiem tra cu phap:
 npm run check
 ```
 
-Tai khoan test trong data hien tai:
+Tai khoan test neu database duoc seed tu `data/DATA.txt` hien tai:
 
 ```txt
 Admin: admin / 123456
@@ -29,7 +29,7 @@ User: user1 / 123456
 User: user2 / 123456
 ```
 
-Mat khau trong `data/DATA.txt` da duoc migrate sang `passwordHash`. Neu tao data moi, dat `DEFAULT_ADMIN_PASSWORD` va `DEFAULT_USER_PASSWORD` trong `.env` truoc khi chay server lan dau.
+Khi server khoi dong, app tu tao cac bang MySQL neu chua co. Neu bang `users` hoac `products` dang rong, app se seed du lieu tu `data/DATA.txt` va `data/products.json`; neu khong co file seed thi dung `DEFAULT_ADMIN_PASSWORD` va `DEFAULT_USER_PASSWORD` trong `.env`.
 
 ## Tinh nang
 
@@ -39,7 +39,12 @@ Mat khau trong `data/DATA.txt` da duoc migrate sang `passwordHash`. Neu tao data
 - Kiem tra ton kho theo size khi them gio hang va khi tao don hang.
 - Admin them/sua/xoa san pham bang token dang nhap, khong dung header role tu client.
 - Thanh toan MoMo, ZaloPay va thanh toan khi nhan hang (COD).
-- Server tinh lai don hang tu `products.json`, khong tin gia/amount do client gui len.
+- User co lich su mua hang qua `GET /api/orders/me`.
+- Admin co lich su ban hang qua `GET /api/orders`.
+- User, product, order va order item duoc luu trong MySQL.
+- Server tinh lai don hang tu bang `products`, khong tin gia/amount do client gui len.
+- COD tru ton kho ngay khi tao don thanh cong. MoMo/ZaloPay tru ton kho khi IPN/callback xac nhan thanh toan thanh cong.
+- Moi don hang chi duoc tru ton kho mot lan bang co `stock_applied`.
 
 ## Cau truc can upload len hosting
 
@@ -50,6 +55,7 @@ server.js
 package.json
 routes/
 middleware/
+config/
 data/
 web/
 bootstrap-5.3.8-dist/
@@ -77,6 +83,11 @@ PORT=3000
 HOST=0.0.0.0
 PUBLIC_BASE_URL=https://your-domain.com
 SESSION_MAX_AGE_MS=43200000
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=mat-khau-mysql
+DB_NAME=webbanhang
 DEFAULT_ADMIN_USERNAME=admin
 DEFAULT_ADMIN_PASSWORD=mat-khau-admin-moi
 DEFAULT_USER_USERNAME=user1
@@ -139,8 +150,22 @@ GET    /api/payments/zalopay/return
 POST   /api/payments/zalopay/status
 POST   /api/payments/cod   Dang nhap + du ho so giao hang
 
+GET    /api/orders/me       Dang nhap
 GET    /api/orders          Admin token
 ```
+
+## Database
+
+Database MySQL duoc cau hinh trong [config/db.js](config/db.js). App tu tao cac bang:
+
+```txt
+users
+products
+orders
+order_items
+```
+
+`orders` luu thong tin don hang, khach hang, trang thai thanh toan va provider. `order_items` luu tung san pham trong don. Khi user dat hang thanh cong, don hang xuat hien trong lich su mua hang cua user va lich su ban hang cua admin.
 
 ## Auth token
 

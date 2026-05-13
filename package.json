@@ -7,10 +7,13 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "check": "node --check server.js && node --check routes/auth.js && node --check routes/products.js && node --check middleware/adminMiddleware.js && node --check web/testscript.js"
+    "check": "node --check server.js && node --check routes/auth.js && node --check routes/products.js && node --check middleware/adminMiddleware.js && node --check config/db.js && node --check web/script.js"
   },
   "engines": {
     "node": ">=18"
   },
-  "dependencies": {}
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "mysql2": "^3.22.3"
+  }
 }

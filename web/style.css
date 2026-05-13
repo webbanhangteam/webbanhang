@@ -1002,6 +1002,91 @@ a {
     background: white;
 }
 
+.order-history {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: white;
+}
+
+.history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.history-head h3 {
+    margin: 0;
+    font-family: Oswald, sans-serif;
+    font-size: 1.45rem;
+    text-transform: uppercase;
+}
+
+.history-head .outline-btn {
+    width: auto;
+    min-height: 38px;
+    padding: 0 12px;
+}
+
+.order-history-list {
+    display: grid;
+    gap: 10px;
+}
+
+.order-history-card {
+    display: grid;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--soft);
+}
+
+.order-history-card header,
+.order-history-card footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.order-history-card h4,
+.order-history-card p {
+    margin: 0;
+}
+
+.order-history-card h4 {
+    font-size: 0.95rem;
+    font-weight: 900;
+}
+
+.order-history-card small {
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.order-history-card ul {
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding-left: 18px;
+    color: var(--muted);
+    font-size: 0.86rem;
+}
+
+.order-status {
+    padding: 4px 8px;
+    border-radius: 999px;
+    color: white;
+    background: var(--ink);
+    font-size: 0.72rem;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
 .auth-message {
     min-height: 22px;
     margin: 0;
@@ -1167,6 +1252,28 @@ a {
     overflow-x: auto;
     border: 1px solid var(--line);
     border-radius: var(--radius);
+}
+
+.admin-orders {
+    display: grid;
+    gap: 14px;
+    margin-top: 28px;
+}
+
+.admin-order-items {
+    display: grid;
+    gap: 4px;
+}
+
+.admin-order-items span,
+.admin-customer span {
+    display: block;
+}
+
+.admin-customer small,
+.admin-order-items small {
+    color: var(--muted);
+    font-size: 0.78rem;
 }
 
 .admin-table {

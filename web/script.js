@@ -27,10 +27,17 @@ const profileFullName = document.getElementById('profileFullName');
 const profilePhone = document.getElementById('profilePhone');
 const profileAddress = document.getElementById('profileAddress');
 const profileMessage = document.getElementById('profileMessage');
+const orderHistoryPanel = document.getElementById('orderHistoryPanel');
+const orderHistoryList = document.getElementById('orderHistoryList');
+const orderHistoryMessage = document.getElementById('orderHistoryMessage');
+const refreshOrdersButton = document.getElementById('refreshOrdersButton');
 const adminPanel = document.getElementById('adminPanel');
 const adminProductForm = document.getElementById('adminProductForm');
 const adminProductsBody = document.getElementById('adminProductsBody');
 const adminMessage = document.getElementById('adminMessage');
+const adminOrdersBody = document.getElementById('adminOrdersBody');
+const adminOrdersMessage = document.getElementById('adminOrdersMessage');
+const refreshAdminOrdersButton = document.getElementById('refreshAdminOrdersButton');
 
 init();
 
@@ -103,6 +110,14 @@ function bindStaticEvents() {
 
     profileForm.addEventListener('submit', submitProfile);
 
+    refreshOrdersButton.addEventListener('click', () => {
+        loadOrderHistory();
+    });
+
+    refreshAdminOrdersButton.addEventListener('click', () => {
+        loadAdminOrders();
+    });
+
     adminProductForm.addEventListener('submit', submitAdminProduct);
 
     document.getElementById('cancelAdminEdit').addEventListener('click', () => {
@@ -128,6 +143,7 @@ async function restoreSession() {
         }
 
         currentUser = {
+            id: data.user.id || null,
             username: data.user.username,
             role: data.user.role,
             fullName: data.user.fullName || '',
@@ -596,6 +612,15 @@ async function startCodCheckout() {
         cart = [];
         saveCart();
         renderCart();
+        await loadProducts();
+        syncCartWithProducts();
+        renderProducts();
+        renderProductDetail();
+        renderSearch(searchInput.value);
+        await loadOrderHistory();
+        if (currentUser.role === 'Admin') {
+            await loadAdminOrders();
+        }
         checkoutMessage.textContent = `Đã tạo đơn COD ${data.orderId}.`;
     } catch {
         checkoutMessage.textContent = 'Không kết nối được server.';
@@ -636,6 +661,7 @@ async function submitAuth(url, payload, messageElement) {
         }
 
         currentUser = {
+            id: data.id || null,
             username: data.username,
             role: data.role,
             fullName: data.fullName || '',
@@ -666,6 +692,11 @@ function updateAccountUi() {
         logoutButton.hidden = true;
         profileForm.hidden = true;
         profileMessage.textContent = '';
+        orderHistoryPanel.hidden = true;
+        orderHistoryList.innerHTML = '';
+        orderHistoryMessage.textContent = '';
+        adminOrdersBody.innerHTML = '';
+        adminOrdersMessage.textContent = '';
         adminPanel.hidden = true;
         return;
     }
@@ -677,7 +708,143 @@ function updateAccountUi() {
     profileFullName.value = currentUser.fullName || '';
     profilePhone.value = currentUser.phone || '';
     profileAddress.value = currentUser.address || '';
+    orderHistoryPanel.hidden = false;
+    loadOrderHistory();
     adminPanel.hidden = currentUser.role !== 'Admin';
+    if (currentUser.role === 'Admin') {
+        loadAdminOrders();
+    }
+}
+
+async function loadOrderHistory() {
+    if (!currentUser?.token) return;
+
+    orderHistoryMessage.textContent = 'Đang tải đơn hàng...';
+
+    try {
+        const response = await fetch('/api/orders/me', {
+            headers: authHeaders(false)
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            orderHistoryMessage.textContent = data.message || 'Không tải được lịch sử đơn hàng.';
+            return;
+        }
+
+        renderOrderHistory(Array.isArray(data.orders) ? data.orders : []);
+    } catch {
+        orderHistoryMessage.textContent = 'Không kết nối được server.';
+    }
+}
+
+function renderOrderHistory(orders) {
+    if (!orders.length) {
+        orderHistoryList.innerHTML = '<p class="empty-cart">Chưa có đơn hàng.</p>';
+        orderHistoryMessage.textContent = '';
+        return;
+    }
+
+    orderHistoryList.innerHTML = orders.map((order) => {
+        const items = Array.isArray(order.items) ? order.items : [];
+        const createdAt = order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '';
+        const itemRows = items.map((item) => {
+            const size = item.size ? ` - Size ${escapeHtml(item.size)}` : '';
+            return `<li>${escapeHtml(item.name)}${size} x ${Number(item.quantity) || 0}</li>`;
+        }).join('');
+
+        return `
+            <article class="order-history-card">
+                <header>
+                    <div>
+                        <h4>${escapeHtml(order.orderId || '')}</h4>
+                        <small>${escapeHtml(order.provider || '')} ${createdAt ? `- ${escapeHtml(createdAt)}` : ''}</small>
+                    </div>
+                    <span class="order-status">${escapeHtml(order.status || '')}</span>
+                </header>
+                <ul>${itemRows}</ul>
+                <footer>
+                    <span>${items.length} mặt hàng</span>
+                    <strong>${currency.format(Number(order.amount) || 0)}</strong>
+                </footer>
+            </article>
+        `;
+    }).join('');
+    orderHistoryMessage.textContent = '';
+}
+
+async function loadAdminOrders() {
+    if (!currentUser?.token || currentUser.role !== 'Admin') return;
+
+    adminOrdersMessage.textContent = 'Đang tải đơn hàng...';
+
+    try {
+        const response = await fetch('/api/orders', {
+            headers: authHeaders(false)
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            adminOrdersMessage.textContent = data.message || 'Không tải được lịch sử bán hàng.';
+            return;
+        }
+
+        renderAdminOrders(Array.isArray(data.orders) ? data.orders : []);
+    } catch {
+        adminOrdersMessage.textContent = 'Không kết nối được server.';
+    }
+}
+
+function renderAdminOrders(orders) {
+    if (!adminOrdersBody) return;
+
+    if (!orders.length) {
+        adminOrdersBody.innerHTML = `
+            <tr>
+                <td colspan="4">Chưa có đơn hàng.</td>
+            </tr>
+        `;
+        adminOrdersMessage.textContent = '';
+        return;
+    }
+
+    adminOrdersBody.innerHTML = orders.map((order) => {
+        const customer = order.customer || {};
+        const customerName = customer.fullName || customer.username || 'Khách hàng';
+        const customerDetails = [
+            customer.username ? `@${customer.username}` : '',
+            customer.phone || '',
+            customer.address || ''
+        ].filter(Boolean).map(escapeHtml).join('<br>');
+        const items = Array.isArray(order.items) ? order.items : [];
+        const itemRows = items.map((item) => {
+            const size = item.size ? `Size ${escapeHtml(item.size)} - ` : '';
+            return `
+                <span>${escapeHtml(item.name)} x ${Number(item.quantity) || 0}</span>
+                <small>${size}${currency.format(Number(item.unitPrice) || 0)}</small>
+            `;
+        }).join('');
+
+        return `
+            <tr>
+                <td>
+                    <strong>${escapeHtml(order.orderId || '')}</strong>
+                    <small>${escapeHtml(order.status || '')}</small>
+                </td>
+                <td>
+                    <div class="admin-customer">
+                        <span>${escapeHtml(customerName)}</span>
+                        <small>${customerDetails}</small>
+                    </div>
+                </td>
+                <td>
+                    <div class="admin-order-items">${itemRows}</div>
+                </td>
+                <td><strong>${currency.format(Number(order.amount) || 0)}</strong></td>
+            </tr>
+        `;
+    }).join('');
+    adminOrdersMessage.textContent = '';
 }
 
 async function submitProfile(event) {
@@ -1002,6 +1169,7 @@ function normalizeSession(session) {
 
     return {
         username: String(session.username || ''),
+        id: session.id || null,
         role: session.role === 'Admin' ? 'Admin' : 'User',
         fullName: String(session.fullName || ''),
         phone: String(session.phone || ''),

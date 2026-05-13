@@ -435,6 +435,14 @@
                     <button class="black-btn" type="submit">Lưu thông tin</button>
                     <p id="profileMessage" class="checkout-message"></p>
                 </form>
+                <div id="orderHistoryPanel" class="order-history" hidden>
+                    <div class="history-head">
+                        <h3>Đơn đã đặt</h3>
+                        <button class="outline-btn" type="button" id="refreshOrdersButton">Tải lại</button>
+                    </div>
+                    <div id="orderHistoryList" class="order-history-list"></div>
+                    <p id="orderHistoryMessage" class="checkout-message"></p>
+                </div>
             </div>
         </section>
 
@@ -501,6 +509,26 @@
                         <tbody id="adminProductsBody"></tbody>
                     </table>
                 </div>
+            </div>
+            <div class="admin-orders">
+                <div class="history-head">
+                    <h3>Lịch sử bán hàng</h3>
+                    <button class="outline-btn" type="button" id="refreshAdminOrdersButton">Tải lại</button>
+                </div>
+                <div class="admin-table-wrap">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Mã đơn</th>
+                                <th>Người đặt</th>
+                                <th>Sản phẩm</th>
+                                <th>Tổng tiền</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adminOrdersBody"></tbody>
+                    </table>
+                </div>
+                <p id="adminOrdersMessage" class="checkout-message"></p>
             </div>
         </section>
     </main>
@@ -638,7 +666,7 @@
     </div>
 
     <script src="../bootstrap-5.3.8-dist/bootstrap-5.3.8-dist/js/bootstrap.bundle.min.js"></script>
-    <script src="testscript.js">
+    <script src="script.js">
 
     </script>
 </body>

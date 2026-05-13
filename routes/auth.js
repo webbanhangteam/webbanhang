@@ -1,27 +1,29 @@
 const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
+const db = require('../config/db');
 
 const passwordHashPrefix = 'scrypt';
 const passwordKeyLength = 64;
 
-function ensureUserDataFile(filePath) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+async function ensureUserDataFile(filePath) {
+  const [[{ count }]] = await db.execute('SELECT COUNT(*) AS count FROM users');
+  if (count > 0) return;
 
-  if (!fs.existsSync(filePath)) {
-    writeUsers(filePath, createDefaultUsers());
-    return;
+  let seedUsers = [];
+  if (fs.existsSync(filePath)) {
+    try {
+      seedUsers = normalizeUsers(JSON.parse(fs.readFileSync(filePath, 'utf8').trim() || '[]'));
+    } catch {
+      seedUsers = [];
+    }
   }
 
-  try {
-    const rawUsers = readRawUsers(filePath);
-    const users = normalizeUsers(rawUsers);
+  if (!seedUsers.length) {
+    seedUsers = createDefaultUsers();
+  }
 
-    if (JSON.stringify(rawUsers) !== JSON.stringify(users)) {
-      writeUsers(filePath, users);
-    }
-  } catch {
-    writeUsers(filePath, createDefaultUsers());
+  for (const user of seedUsers) {
+    await insertSeedUser(user);
   }
 }
 
@@ -46,7 +48,7 @@ async function handleAuthRoute(req, res, requestUrl, context) {
 
     if (req.method === 'PUT') {
       const body = await context.readRequestBody(req);
-      const updatedUser = updateUserProfile(context.userDataFile, sessionUser.username, body);
+      const updatedUser = await updateUserProfile(sessionUser.username, body);
 
       if (!updatedUser) {
         context.sendJson(res, 404, {
@@ -64,10 +66,10 @@ async function handleAuthRoute(req, res, requestUrl, context) {
       return true;
     }
 
-    const user = getUserByUsername(context.userDataFile, sessionUser.username) || sessionUser;
+    const user = await getUserByUsername(sessionUser.username);
     context.sendJson(res, 200, {
       ok: true,
-      user: toPublicUser(user)
+      user: toPublicUser(user || sessionUser)
     });
     return true;
   }
@@ -112,11 +114,7 @@ async function register(req, res, context) {
     return;
   }
 
-  const users = readUsers(context.userDataFile);
-  const exists = users.some((user) => {
-    return user.username.toLowerCase() === username.toLowerCase();
-  });
-
+  const exists = await getUserByUsername(username);
   if (exists) {
     context.sendJson(res, 409, {
       ok: false,
@@ -125,14 +123,14 @@ async function register(req, res, context) {
     return;
   }
 
-  const user = {
+  const user = await createUser({
     username,
     passwordHash: hashPassword(password),
-    role: 'User'
-  };
-
-  users.push(user);
-  writeUsers(context.userDataFile, users);
+    role: 'User',
+    fullName: '',
+    phone: '',
+    address: ''
+  });
 
   sendAuthSuccess(res, context, 201, user);
 }
@@ -141,11 +139,7 @@ async function login(req, res, context) {
   const body = await context.readRequestBody(req);
   const username = normalizeUsername(body.username);
   const password = String(body.password || '').trim();
-
-  const users = readUsers(context.userDataFile);
-  const user = users.find((item) => {
-    return item.username.toLowerCase() === username.toLowerCase();
-  });
+  const user = await getUserByUsername(username);
 
   if (!user || !verifyPassword(password, user.passwordHash)) {
     context.sendJson(res, 401, {
@@ -164,6 +158,7 @@ function sendAuthSuccess(res, context, statusCode, user) {
 
   context.sendJson(res, statusCode, {
     ok: true,
+    id: publicUser.id,
     username: publicUser.username,
     role: publicUser.role,
     fullName: publicUser.fullName,
@@ -193,6 +188,46 @@ function normalizeAuthPath(pathname) {
   };
 
   return routes[pathname] || null;
+}
+
+async function createUser(user) {
+  const normalized = normalizeUsers([user])[0];
+  const [result] = await db.execute(
+    `INSERT INTO users (username, password_hash, role, full_name, phone, address)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      normalized.username,
+      normalized.passwordHash,
+      normalized.role,
+      normalized.fullName,
+      normalized.phone,
+      normalized.address
+    ]
+  );
+
+  return {
+    ...normalized,
+    id: result.insertId
+  };
+}
+
+async function insertSeedUser(user) {
+  const normalized = normalizeUsers([user])[0];
+  if (!normalized) return;
+
+  await db.execute(
+    `INSERT IGNORE INTO users (id, username, password_hash, role, full_name, phone, address)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      Number(normalized.id) || null,
+      normalized.username,
+      normalized.passwordHash,
+      normalized.role,
+      normalized.fullName,
+      normalized.phone,
+      normalized.address
+    ]
+  );
 }
 
 function createDefaultUsers() {
@@ -230,10 +265,11 @@ function normalizeUsers(users) {
     if (!username || !passwordHash) return result;
 
     result.push({
+      id: Number(user.id) || null,
       username,
       passwordHash,
       role,
-      fullName: normalizeProfileField(user.fullName || user.name),
+      fullName: normalizeProfileField(user.fullName || user.full_name || user.name),
       phone: normalizeProfileField(user.phone),
       address: normalizeProfileField(user.address)
     });
@@ -242,7 +278,7 @@ function normalizeUsers(users) {
 }
 
 function normalizePasswordHash(user) {
-  const existingHash = String(user.passwordHash || '').trim();
+  const existingHash = String(user.passwordHash || user.password_hash || '').trim();
   if (isPasswordHash(existingHash)) return existingHash;
 
   const legacyPassword = String(user.password || '').trim();
@@ -263,41 +299,66 @@ function normalizeProfileField(value) {
   return String(value || '').trim();
 }
 
+function rowToUser(row) {
+  if (!row) return null;
+
+  return {
+    id: Number(row.id),
+    username: row.username,
+    passwordHash: row.password_hash || row.passwordHash,
+    role: normalizeRole(row.role),
+    fullName: normalizeProfileField(row.full_name || row.fullName),
+    phone: normalizeProfileField(row.phone),
+    address: normalizeProfileField(row.address)
+  };
+}
+
 function toPublicUser(user) {
   return {
+    id: user.id || null,
     username: user.username,
-    role: user.role,
-    fullName: normalizeProfileField(user.fullName),
+    role: normalizeRole(user.role),
+    fullName: normalizeProfileField(user.fullName || user.full_name),
     phone: normalizeProfileField(user.phone),
     address: normalizeProfileField(user.address)
   };
 }
 
-function getUserByUsername(filePath, username) {
-  const normalizedUsername = normalizeUsername(username).toLowerCase();
-  return readUsers(filePath).find((user) => {
-    return user.username.toLowerCase() === normalizedUsername;
-  }) || null;
+async function getUserByUsername(username) {
+  const normalizedUsername = normalizeUsername(username);
+  if (!normalizedUsername) return null;
+
+  const [rows] = await db.execute(
+    'SELECT * FROM users WHERE LOWER(username) = LOWER(?) LIMIT 1',
+    [normalizedUsername]
+  );
+  return rowToUser(rows[0]);
 }
 
-function updateUserProfile(filePath, username, input) {
-  const normalizedUsername = normalizeUsername(username).toLowerCase();
-  const users = readUsers(filePath);
-  const index = users.findIndex((user) => {
-    return user.username.toLowerCase() === normalizedUsername;
-  });
+async function getUserById(id) {
+  const [rows] = await db.execute('SELECT * FROM users WHERE id = ? LIMIT 1', [Number(id)]);
+  return rowToUser(rows[0]);
+}
 
-  if (index === -1) return null;
+async function updateUserProfile(username, input) {
+  const user = await getUserByUsername(username);
+  if (!user) return null;
 
-  users[index] = {
-    ...users[index],
-    fullName: normalizeProfileField(input.fullName || input.name),
-    phone: normalizeProfileField(input.phone),
-    address: normalizeProfileField(input.address)
+  const fullName = normalizeProfileField(input.fullName || input.name);
+  const phone = normalizeProfileField(input.phone);
+  const address = normalizeProfileField(input.address);
+
+  await db.execute(
+    'UPDATE users SET full_name = ?, phone = ?, address = ? WHERE id = ?',
+    [fullName, phone, address, user.id]
+  );
+
+  return {
+    ...user,
+    fullName,
+    phone,
+    address
   };
-
-  writeUsers(filePath, users);
-  return users[index];
 }
 
 function hashPassword(password) {
@@ -324,19 +385,15 @@ function isPasswordHash(value) {
     /^[a-f0-9]+$/i.test(parts[2]);
 }
 
-function readRawUsers(filePath) {
-  const content = fs.readFileSync(filePath, 'utf8').trim();
-  if (!content) return [];
-
-  return JSON.parse(content);
+async function readUsers() {
+  const [rows] = await db.execute('SELECT * FROM users ORDER BY id');
+  return rows.map(rowToUser);
 }
 
-function readUsers(filePath) {
-  return normalizeUsers(readRawUsers(filePath));
-}
-
-function writeUsers(filePath, users) {
-  fs.writeFileSync(filePath, `${JSON.stringify(normalizeUsers(users), null, 2)}\n`, 'utf8');
+async function writeUsers(filePath, users) {
+  for (const user of normalizeUsers(users)) {
+    await insertSeedUser(user);
+  }
 }
 
 module.exports = {
@@ -347,5 +404,7 @@ module.exports = {
   hashPassword,
   verifyPassword,
   getUserByUsername,
-  updateUserProfile
+  getUserById,
+  updateUserProfile,
+  toPublicUser
 };

@@ -3,6 +3,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const db = require('./config/db');
 const { ensureUserDataFile, handleAuthRoute, getUserByUsername } = require('./routes/auth');
 const { ensureProductsDataFile, handleProductsRoute, readProducts } = require('./routes/products');
 const { getRequestToken, isAdminRequest, sendForbidden } = require('./middleware/adminMiddleware');
@@ -16,9 +17,9 @@ const bootstrapRoot = path.join(root, 'bootstrap-5.3.8-dist');
 const port = process.env.PORT || 3000;
 const host = process.env.HOST || '0.0.0.0';
 const publicBaseUrl = (process.env.PUBLIC_BASE_URL || process.env.BASE_URL || `http://localhost:${port}`).replace(/\/+$/, '');
-const orders = {};
 const sessions = new Map();
 const userDataFile = path.join(root, 'data', 'DATA.txt');
+
 const productsDataFile = path.join(root, 'data', 'products.json');
 const maxBodySize = parsePositiveNumber(process.env.MAX_BODY_SIZE, 1024 * 1024);
 const sessionMaxAgeMs = parsePositiveNumber(process.env.SESSION_MAX_AGE_MS, 1000 * 60 * 60 * 12);
@@ -36,9 +37,6 @@ const mimeTypes = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon'
 };
-
-ensureUserDataFile(userDataFile);
-ensureProductsDataFile(productsDataFile);
 
 const momoConfig = {
   partnerCode: process.env.MOMO_PARTNER_CODE || process.env.PARTNER_CODE || '',
@@ -151,13 +149,24 @@ async function handleApi(req, res, requestUrl) {
     return;
   }
 
+  if (req.method === 'GET' && requestUrl.pathname === '/api/orders/me') {
+    const user = getSessionFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, orders: await getOrdersByUserId(user.id) });
+    return;
+  }
+
   if (req.method === 'GET' && requestUrl.pathname === '/api/orders') {
     if (!isAdminRequest(req, getSessionFromRequest)) {
       sendForbidden(res, sendJson);
       return;
     }
 
-    sendJson(res, 200, { ok: true, orders });
+    sendJson(res, 200, { ok: true, orders: await getSalesHistory() });
     return;
   }
 
@@ -174,7 +183,7 @@ function isApiRequestPath(pathname) {
 
 async function createMomoPayment(req, res) {
   const body = await readRequestBody(req);
-  const order = createOrderFromCart(body.items);
+  const order = await createOrderFromCart(body.items);
 
   if (!order.ok) {
     sendJson(res, 400, { ok: false, message: order.message });
@@ -220,16 +229,15 @@ async function createMomoPayment(req, res) {
     lang: 'vi'
   };
 
-  orders[orderId] = createLocalOrder('momo', orderId, order, orderInfo, getSessionFromRequest(req));
+  await createLocalOrder('momo', orderId, order, orderInfo, getSessionFromRequest(req), 'CREATED');
 
   try {
     const momoResponse = await postJson(momoConfig.endpoint, payload);
-    orders[orderId].gatewayResponse = momoResponse;
-    orders[orderId].status = momoResponse.resultCode === 0 || momoResponse.payUrl ? 'PENDING' : 'FAILED';
+    const status = momoResponse.resultCode === 0 || momoResponse.payUrl ? 'PENDING' : 'FAILED';
+    await updateOrderGatewayResponse(orderId, status, momoResponse);
     sendJson(res, 200, { ok: true, provider: 'momo', orderId, paymentUrl: momoResponse.payUrl, momo: momoResponse });
   } catch (err) {
-    orders[orderId].status = 'FAILED';
-    orders[orderId].error = err.message;
+    await updateOrderGatewayResponse(orderId, 'FAILED', { error: err.message });
     sendJson(res, 502, { ok: false, message: 'Khong tao duoc thanh toan MoMo', error: err.message });
   }
 }
@@ -255,13 +263,13 @@ async function handleMomoIpn(req, res) {
     return;
   }
 
-  updateOrderFromGateway(body.orderId, Number(body.resultCode) === 0, body);
+  await updateOrderFromGateway(body.orderId, Number(body.resultCode) === 0, body);
   sendJson(res, 200, { status: 'OK' });
 }
 
 async function createZaloPayPayment(req, res) {
   const body = await readRequestBody(req);
-  const order = createOrderFromCart(body.items);
+  const order = await createOrderFromCart(body.items);
 
   if (!order.ok) {
     sendJson(res, 400, { ok: false, message: order.message });
@@ -296,12 +304,12 @@ async function createZaloPayPayment(req, res) {
     mac: hmacSha256(zalopayConfig.key1, raw)
   };
 
-  orders[appTransId] = createLocalOrder('zalopay', appTransId, order, description, getSessionFromRequest(req));
+  await createLocalOrder('zalopay', appTransId, order, description, getSessionFromRequest(req), 'CREATED');
 
   try {
     const zaloResponse = await postJson(zalopayConfig.createUrl, payload);
-    orders[appTransId].gatewayResponse = zaloResponse;
-    orders[appTransId].status = zaloResponse.return_code === 1 ? 'PENDING' : 'FAILED';
+    const status = zaloResponse.return_code === 1 ? 'PENDING' : 'FAILED';
+    await updateOrderGatewayResponse(appTransId, status, zaloResponse);
     sendJson(res, 200, {
       ok: zaloResponse.return_code === 1,
       provider: 'zalopay',
@@ -310,8 +318,7 @@ async function createZaloPayPayment(req, res) {
       zalopay: zaloResponse
     });
   } catch (err) {
-    orders[appTransId].status = 'FAILED';
-    orders[appTransId].error = err.message;
+    await updateOrderGatewayResponse(appTransId, 'FAILED', { error: err.message });
     sendJson(res, 502, { ok: false, message: 'Khong tao duoc thanh toan ZaloPay', error: err.message });
   }
 }
@@ -339,7 +346,7 @@ async function handleZaloPayCallback(req, res) {
   }
 
   const success = Number(parsed.return_code || parsed.resultCode || parsed.returncode || -1) === 1;
-  updateOrderFromGateway(parsed.app_trans_id, success, parsed);
+  await updateOrderFromGateway(parsed.app_trans_id, success, parsed);
   sendJson(res, 200, { return_code: 1, return_message: 'OK' });
 }
 
@@ -372,7 +379,7 @@ async function createCodOrder(req, res) {
     return;
   }
 
-  const user = getUserByUsername(userDataFile, sessionUser.username);
+  const user = await getUserByUsername(sessionUser.username);
   if (!user) {
     sendJson(res, 404, { ok: false, message: 'Khong tim thay tai khoan' });
     return;
@@ -384,7 +391,7 @@ async function createCodOrder(req, res) {
   }
 
   const body = await readRequestBody(req);
-  const order = createOrderFromCart(body.items);
+  const order = await createOrderFromCart(body.items);
 
   if (!order.ok) {
     sendJson(res, 400, { ok: false, message: order.message });
@@ -393,8 +400,16 @@ async function createCodOrder(req, res) {
 
   const orderId = `COD${Date.now()}${crypto.randomBytes(3).toString('hex')}`;
   const description = body.description || 'Thanh toan khi nhan hang';
-  orders[orderId] = createLocalOrder('cod', orderId, order, description, toOrderCustomer(user));
-  orders[orderId].status = 'COD_PENDING';
+  let savedOrder;
+  try {
+    savedOrder = await createLocalOrder('cod', orderId, order, description, toOrderCustomer(user), {
+      status: 'COD_PENDING',
+      applyStock: true
+    });
+  } catch (err) {
+    sendJson(res, 400, { ok: false, message: err.message || 'Khong tao duoc don COD' });
+    return;
+  }
 
   sendJson(res, 201, {
     ok: true,
@@ -402,7 +417,7 @@ async function createCodOrder(req, res) {
     orderId,
     amount: order.amount,
     items: order.items,
-    customer: orders[orderId].user,
+    customer: savedOrder.user,
     message: 'Da tao don hang COD'
   });
 }
@@ -439,7 +454,7 @@ function resolveStaticPath(pathname) {
     return safeResolve(webRoot, 'index.html');
   }
 
-  if (route === '/style.css' || route === '/testscript.js') {
+  if (route === '/style.css' || route === '/script.js') {
     return safeResolve(webRoot, route.slice(1));
   }
 
@@ -622,6 +637,7 @@ function createSession(user) {
 
   sessions.set(token, {
     user: {
+      id: user.id || null,
       username: user.username,
       role: user.role,
       fullName: user.fullName || '',
@@ -658,6 +674,7 @@ function updateSessionUser(req, user) {
 
   const session = sessions.get(token);
   session.user = {
+    id: user.id || null,
     username: user.username,
     role: user.role,
     fullName: user.fullName || '',
@@ -671,7 +688,7 @@ function destroySession(req) {
   if (token) sessions.delete(token);
 }
 
-function createOrderFromCart(items) {
+async function createOrderFromCart(items) {
   if (!Array.isArray(items) || !items.length) {
     return {
       ok: false,
@@ -679,7 +696,7 @@ function createOrderFromCart(items) {
     };
   }
 
-  const products = readProducts(productsDataFile);
+  const products = await readProducts();
   const orderItems = [];
 
   for (const item of items) {
@@ -780,6 +797,7 @@ function hasDeliveryProfile(user) {
 
 function toOrderCustomer(user) {
   return {
+    id: user.id || null,
     username: user.username,
     role: user.role,
     fullName: String(user.fullName || '').trim(),
@@ -788,7 +806,62 @@ function toOrderCustomer(user) {
   };
 }
 
-function createLocalOrder(provider, orderId, order, description, user) {
+async function createLocalOrder(provider, orderId, order, description, user, options = {}) {
+  const connection = await db.getConnection();
+  const customer = user || {};
+  const status = options.status || 'CREATED';
+  let stockApplied = false;
+
+  try {
+    await connection.beginTransaction();
+    const [result] = await connection.execute(
+      `INSERT INTO orders
+        (order_code, user_id, provider, status, amount, description,
+         customer_username, customer_name, customer_phone, customer_address)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        orderId,
+        customer.id || null,
+        provider,
+        status,
+        order.amount,
+        description || '',
+        customer.username || '',
+        customer.fullName || '',
+        customer.phone || '',
+        customer.address || ''
+      ]
+    );
+
+    for (const item of order.items) {
+      await connection.execute(
+        `INSERT INTO order_items
+          (order_id, product_id, product_name, size, quantity, unit_price, line_total)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          result.insertId,
+          item.productId,
+          item.name,
+          item.size || null,
+          item.quantity,
+          item.unitPrice,
+          item.lineTotal
+        ]
+      );
+    }
+
+    if (options.applyStock) {
+      stockApplied = await applyOrderStockByDbId(connection, result.insertId);
+    }
+
+    await connection.commit();
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+
   return {
     provider,
     orderId,
@@ -796,16 +869,215 @@ function createLocalOrder(provider, orderId, order, description, user) {
     items: order.items,
     description,
     user: user || null,
-    status: 'CREATED',
+    status,
+    stockApplied,
     createdAt: new Date().toISOString()
   };
 }
 
-function updateOrderFromGateway(orderId, success, gatewayPayload) {
-  if (!orderId || !orders[orderId]) return;
-  orders[orderId].status = success ? 'PAID' : 'FAILED';
-  orders[orderId].gatewayPayload = gatewayPayload;
-  orders[orderId].updatedAt = new Date().toISOString();
+async function updateOrderGatewayResponse(orderId, status, gatewayResponse) {
+  if (!orderId) return;
+
+  await db.execute(
+    'UPDATE orders SET status = ?, gateway_response = ? WHERE order_code = ?',
+    [status, JSON.stringify(gatewayResponse || {}), orderId]
+  );
+}
+
+async function updateOrderFromGateway(orderId, success, gatewayPayload) {
+  if (!orderId) return;
+
+  if (!success) {
+    await db.execute(
+      'UPDATE orders SET status = ?, gateway_payload = ? WHERE order_code = ?',
+      ['FAILED', JSON.stringify(gatewayPayload || {}), orderId]
+    );
+    return;
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      'SELECT id, stock_applied FROM orders WHERE order_code = ? FOR UPDATE',
+      [orderId]
+    );
+
+    if (!rows.length) {
+      await connection.rollback();
+      return;
+    }
+
+    if (!Number(rows[0].stock_applied)) {
+      await applyOrderStockByDbId(connection, rows[0].id);
+    }
+
+    await connection.execute(
+      'UPDATE orders SET status = ?, gateway_payload = ? WHERE id = ?',
+      ['PAID', JSON.stringify(gatewayPayload || {}), rows[0].id]
+    );
+    await connection.commit();
+  } catch (err) {
+    await connection.rollback();
+    await db.execute(
+      'UPDATE orders SET status = ?, gateway_payload = ? WHERE order_code = ?',
+      ['PAID_STOCK_ERROR', JSON.stringify({ gatewayPayload, stockError: err.message }), orderId]
+    );
+    throw err;
+  } finally {
+    connection.release();
+  }
+}
+
+async function applyOrderStockByDbId(connection, orderDbId) {
+  const [orderRows] = await connection.execute(
+    'SELECT id, stock_applied FROM orders WHERE id = ? FOR UPDATE',
+    [orderDbId]
+  );
+
+  if (!orderRows.length) {
+    throw new Error('Khong tim thay don hang');
+  }
+
+  if (Number(orderRows[0].stock_applied)) {
+    return false;
+  }
+
+  const [items] = await connection.execute(
+    `SELECT product_id, size, quantity
+     FROM order_items
+     WHERE order_id = ?`,
+    [orderDbId]
+  );
+
+  for (const item of items) {
+    if (!item.product_id || !item.size) continue;
+
+    const [productRows] = await connection.execute(
+      'SELECT id, stock FROM products WHERE id = ? FOR UPDATE',
+      [item.product_id]
+    );
+
+    if (!productRows.length) {
+      throw new Error('San pham trong don khong con ton tai');
+    }
+
+    const stock = parseJson(productRows[0].stock, {});
+    const size = String(item.size);
+    const currentStock = Number(stock[size] || 0);
+    const quantity = Number(item.quantity || 0);
+
+    if (currentStock < quantity) {
+      throw new Error(`Khong du ton kho cho san pham #${item.product_id} size ${size}`);
+    }
+
+    stock[size] = currentStock - quantity;
+    await connection.execute(
+      'UPDATE products SET stock = ? WHERE id = ?',
+      [JSON.stringify(stock), item.product_id]
+    );
+  }
+
+  await connection.execute(
+    'UPDATE orders SET stock_applied = 1 WHERE id = ?',
+    [orderDbId]
+  );
+
+  return true;
+}
+
+async function getOrdersByUserId(userId) {
+  if (!userId) return [];
+  return fetchOrders('WHERE o.user_id = ?', [Number(userId)]);
+}
+
+async function getSalesHistory() {
+  return fetchOrders('', []);
+}
+
+async function fetchOrders(whereClause, params) {
+  const [rows] = await db.execute(
+    `SELECT
+       o.id,
+       o.order_code,
+       o.user_id,
+       o.provider,
+       o.status,
+       o.stock_applied,
+       o.amount,
+       o.description,
+       o.customer_username,
+       o.customer_name,
+       o.customer_phone,
+       o.customer_address,
+       o.gateway_response,
+       o.gateway_payload,
+       o.created_at,
+       o.updated_at,
+       oi.id AS item_id,
+       oi.product_id,
+       oi.product_name,
+       oi.size,
+       oi.quantity,
+       oi.unit_price,
+       oi.line_total
+     FROM orders o
+     LEFT JOIN order_items oi ON oi.order_id = o.id
+     ${whereClause}
+     ORDER BY o.created_at DESC, o.id DESC, oi.id ASC`,
+    params
+  );
+
+  const ordersById = new Map();
+
+  rows.forEach((row) => {
+    if (!ordersById.has(row.id)) {
+      ordersById.set(row.id, {
+        id: Number(row.id),
+        orderId: row.order_code,
+        provider: row.provider,
+        status: row.status,
+        stockApplied: Boolean(row.stock_applied),
+        amount: Number(row.amount),
+        description: row.description || '',
+        customer: {
+          username: row.customer_username || '',
+          fullName: row.customer_name || '',
+          phone: row.customer_phone || '',
+          address: row.customer_address || ''
+        },
+        gatewayResponse: parseJson(row.gateway_response, null),
+        gatewayPayload: parseJson(row.gateway_payload, null),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        items: []
+      });
+    }
+
+    if (row.item_id) {
+      ordersById.get(row.id).items.push({
+        productId: row.product_id === null ? null : Number(row.product_id),
+        name: row.product_name,
+        size: row.size || null,
+        quantity: Number(row.quantity),
+        unitPrice: Number(row.unit_price),
+        lineTotal: Number(row.line_total)
+      });
+    }
+  });
+
+  return Array.from(ordersById.values());
+}
+
+function parseJson(value, fallback) {
+  if (!value) return fallback;
+  if (typeof value !== 'string') return value;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
 }
 
 function formatDateYYMMDD(date) {
@@ -845,8 +1117,18 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
-server.listen(port, host, () => {
-  console.log(`Server chay tai http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
-  console.log(`Public URL: ${publicBaseUrl}`);
+async function startServer() {
+  await db.initDatabase();
+  await ensureUserDataFile(userDataFile);
+  await ensureProductsDataFile(productsDataFile);
+
+  server.listen(port, host, () => {
+    console.log(`Server chay tai http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
+    console.log(`Public URL: ${publicBaseUrl}`);
+  });
+}
+
+startServer().catch((err) => {
+  console.error('Khong khoi dong duoc server:', err);
+  process.exit(1);
 });
-//run codex resume 019e1db4-b126-7d21-9ebd-efd638ffee3b

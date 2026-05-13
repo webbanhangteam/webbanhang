@@ -1,5 +1,5 @@
 const fs = require('fs');
-const path = require('path');
+const db = require('../config/db');
 
 const defaultProducts = [
   {
@@ -92,19 +92,24 @@ const defaultProducts = [
   }
 ];
 
-function ensureProductsDataFile(filePath) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+async function ensureProductsDataFile(filePath) {
+  const [[{ count }]] = await db.execute('SELECT COUNT(*) AS count FROM products');
+  if (count > 0) return;
 
-  if (!fs.existsSync(filePath)) {
-    writeProducts(filePath, defaultProducts);
-    return;
+  let products = [];
+  if (fs.existsSync(filePath)) {
+    try {
+      products = JSON.parse(fs.readFileSync(filePath, 'utf8').trim() || '[]');
+    } catch {
+      products = [];
+    }
   }
 
-  try {
-    readProducts(filePath);
-  } catch {
-    writeProducts(filePath, defaultProducts);
+  if (!Array.isArray(products) || !products.length) {
+    products = defaultProducts;
   }
+
+  await writeProducts(filePath, products);
 }
 
 async function handleProductsRoute(req, res, requestUrl, context) {
@@ -114,7 +119,7 @@ async function handleProductsRoute(req, res, requestUrl, context) {
   if (route.collection && req.method === 'GET') {
     context.sendJson(res, 200, {
       ok: true,
-      products: readProducts(context.productsDataFile)
+      products: await readProducts()
     });
     return true;
   }
@@ -126,11 +131,10 @@ async function handleProductsRoute(req, res, requestUrl, context) {
     }
 
     const body = await context.readRequestBody(req);
-    const products = readProducts(context.productsDataFile);
     let product;
 
     try {
-      product = normalizeProduct(body, null, products);
+      product = normalizeProduct(body, null, await readProducts());
     } catch (err) {
       context.sendJson(res, 400, {
         ok: false,
@@ -139,19 +143,17 @@ async function handleProductsRoute(req, res, requestUrl, context) {
       return true;
     }
 
-    products.push(product);
-    writeProducts(context.productsDataFile, products);
-
+    product = await createProduct(product);
     context.sendJson(res, 201, {
       ok: true,
       product,
-      products
+      products: await readProducts()
     });
     return true;
   }
 
   if (!route.collection && req.method === 'GET') {
-    const product = readProducts(context.productsDataFile).find((item) => item.id === route.id);
+    const product = await getProductById(route.id);
     if (!product) {
       context.sendJson(res, 404, {
         ok: false,
@@ -174,10 +176,9 @@ async function handleProductsRoute(req, res, requestUrl, context) {
     }
 
     const body = await context.readRequestBody(req);
-    const products = readProducts(context.productsDataFile);
-    const index = products.findIndex((item) => item.id === route.id);
+    const current = await getProductById(route.id);
 
-    if (index === -1) {
+    if (!current) {
       context.sendJson(res, 404, {
         ok: false,
         message: 'Khong tim thay san pham'
@@ -185,8 +186,9 @@ async function handleProductsRoute(req, res, requestUrl, context) {
       return true;
     }
 
+    let product;
     try {
-      products[index] = normalizeProduct(body, products[index], products);
+      product = normalizeProduct(body, current, await readProducts());
     } catch (err) {
       context.sendJson(res, 400, {
         ok: false,
@@ -195,12 +197,11 @@ async function handleProductsRoute(req, res, requestUrl, context) {
       return true;
     }
 
-    writeProducts(context.productsDataFile, products);
-
+    product = await updateProduct(route.id, product);
     context.sendJson(res, 200, {
       ok: true,
-      product: products[index],
-      products
+      product,
+      products: await readProducts()
     });
     return true;
   }
@@ -211,10 +212,8 @@ async function handleProductsRoute(req, res, requestUrl, context) {
       return true;
     }
 
-    const products = readProducts(context.productsDataFile);
-    const nextProducts = products.filter((item) => item.id !== route.id);
-
-    if (nextProducts.length === products.length) {
+    const [result] = await db.execute('DELETE FROM products WHERE id = ?', [route.id]);
+    if (!result.affectedRows) {
       context.sendJson(res, 404, {
         ok: false,
         message: 'Khong tim thay san pham'
@@ -222,10 +221,9 @@ async function handleProductsRoute(req, res, requestUrl, context) {
       return true;
     }
 
-    writeProducts(context.productsDataFile, nextProducts);
     context.sendJson(res, 200, {
       ok: true,
-      products: nextProducts
+      products: await readProducts()
     });
     return true;
   }
@@ -281,6 +279,93 @@ function normalizeProduct(input, current, products) {
     sizes,
     stock
   };
+}
+
+async function createProduct(product) {
+  const [result] = await db.execute(
+    `INSERT INTO products (name, category, display_category, price, image, section, sizes, stock)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    productToParams(product).slice(1)
+  );
+
+  return getProductById(result.insertId);
+}
+
+async function updateProduct(id, product) {
+  await db.execute(
+    `UPDATE products
+     SET name = ?, category = ?, display_category = ?, price = ?, image = ?, section = ?,
+         sizes = ?, stock = ?
+     WHERE id = ?`,
+    [...productToParams(product).slice(1), Number(id)]
+  );
+
+  return getProductById(id);
+}
+
+async function getProductById(id) {
+  const [rows] = await db.execute('SELECT * FROM products WHERE id = ? LIMIT 1', [Number(id)]);
+  return rowToProduct(rows[0]);
+}
+
+async function readProducts() {
+  const [rows] = await db.execute('SELECT * FROM products ORDER BY id');
+  return rows.map(rowToProduct);
+}
+
+async function writeProducts(filePath, products) {
+  if (!Array.isArray(products)) return;
+
+  for (const input of products) {
+    const product = normalizeProduct(input, input.id ? { id: input.id } : null, products);
+    await db.execute(
+      `INSERT IGNORE INTO products
+       (id, name, category, display_category, price, image, section, sizes, stock)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      productToParams(product)
+    );
+  }
+}
+
+function productToParams(product) {
+  return [
+    Number(product.id) || null,
+    product.name,
+    product.category,
+    product.displayCategory,
+    Number(product.price) || 0,
+    product.image,
+    product.section,
+    JSON.stringify(product.sizes || []),
+    JSON.stringify(product.stock || {})
+  ];
+}
+
+function rowToProduct(row) {
+  if (!row) return null;
+
+  return {
+    id: Number(row.id),
+    name: row.name,
+    category: row.category,
+    displayCategory: row.display_category,
+    price: Number(row.price),
+    image: row.image || '',
+    section: row.section,
+    sizes: parseJson(row.sizes, []),
+    stock: parseJson(row.stock, {})
+  };
+}
+
+function parseJson(value, fallback) {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value !== 'string') return value;
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
 }
 
 function normalizeCategory(value) {
@@ -343,21 +428,10 @@ function normalizeStock(value, sizes) {
   return stock;
 }
 
-function readProducts(filePath) {
-  const content = fs.readFileSync(filePath, 'utf8').trim();
-  if (!content) return [];
-
-  const products = JSON.parse(content);
-  return Array.isArray(products) ? products : [];
-}
-
-function writeProducts(filePath, products) {
-  fs.writeFileSync(filePath, `${JSON.stringify(products, null, 2)}\n`, 'utf8');
-}
-
 module.exports = {
   ensureProductsDataFile,
   handleProductsRoute,
   readProducts,
-  writeProducts
+  writeProducts,
+  getProductById
 };

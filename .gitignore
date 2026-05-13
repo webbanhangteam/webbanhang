@@ -6,6 +6,7 @@ yarn-debug.log*
 yarn-error.log*
 .DS_Store
 backup.js
+./accesst/testscript.js
 CODEX_CLI_PROJECT_GUIDE.md
 Tài liệu xây dựng web.txt
 ZaloPay-APIs-Integration-Document.pdf
