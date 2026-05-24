@@ -286,6 +286,7 @@ function renderProducts() {
     if (!products.length) return;
 
     if (productGrid) {
+        productGrid.classList.add('row', 'g-4');
         productGrid.innerHTML = products
             .filter((product) => product.section === 'new')
             .map((product) => renderProductCard(product, true))
@@ -293,6 +294,7 @@ function renderProducts() {
     }
 
     if (secondaryProducts) {
+        secondaryProducts.classList.add('row', 'g-4');
         secondaryProducts.innerHTML = products
             .filter((product) => product.section !== 'new')
             .map((product) => renderProductCard(product, false))
@@ -317,20 +319,22 @@ function renderProductCard(product, showWishlist) {
     ` : '';
 
     return `
-        <article class="product-card" data-product-id="${product.id}" data-name="${escapeAttr(product.name)}"
-            data-category="${escapeAttr(product.displayCategory)}" data-type="${escapeAttr(product.category)}"
-            data-price="${Number(product.price) || 0}">
-            ${showWishlist ? '<button class="wishlist-btn" type="button" aria-label="Yêu thích"><i class="bi bi-heart"></i></button>' : ''}
-            <a class="product-media" href="#product-detail">
-                <img src="${escapeAttr(product.image)}" alt="${escapeAttr(product.name)}">
-            </a>
-            <div class="product-info">
-                <span>${escapeHtml(product.displayCategory)}</span>
-                <h3>${escapeHtml(product.name)}</h3>
-                ${sizeSelect}
-                <div class="product-bottom">
-                    <strong>${currency.format(Number(product.price) || 0)}</strong>
-                    <button class="add-to-cart" type="button" data-product-id="${product.id}">Thêm</button>
+        <article class="product-card-shell col-12 col-sm-6 col-lg-4 col-xl-3" data-product-id="${product.id}"
+            data-name="${escapeAttr(product.name)}" data-category="${escapeAttr(product.displayCategory)}"
+            data-type="${escapeAttr(product.category)}" data-price="${Number(product.price) || 0}">
+            <div class="product-card card h-full border-0 shadow-sm rounded-xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl">
+                ${showWishlist ? '<button class="wishlist-btn shadow-sm transition-all duration-300 hover:scale-105" type="button" aria-label="Yêu thích"><i class="bi bi-heart"></i></button>' : ''}
+                <a class="product-media block overflow-hidden bg-gray-100" href="#product-detail">
+                    <img class="w-full object-cover transition-transform duration-300" src="${escapeAttr(product.image)}" alt="${escapeAttr(product.name)}" loading="lazy">
+                </a>
+                <div class="product-info p-4">
+                    <span class="text-xs font-extrabold uppercase text-rose-600">${escapeHtml(product.displayCategory)}</span>
+                    <h3 class="text-base font-extrabold leading-snug">${escapeHtml(product.name)}</h3>
+                    ${sizeSelect}
+                    <div class="product-bottom">
+                        <strong>${currency.format(Number(product.price) || 0)}</strong>
+                        <button class="add-to-cart rounded-lg bg-neutral-950 px-4 py-2 text-xs font-extrabold uppercase text-white transition-all duration-300 hover:scale-105 hover:bg-rose-700" type="button" data-product-id="${product.id}">Thêm</button>
+                    </div>
                 </div>
             </div>
         </article>
@@ -388,13 +392,13 @@ function applyActiveFilter() {
     const active = document.querySelector('[data-filter].active');
     const filter = active ? active.dataset.filter : 'all';
 
-    document.querySelectorAll('.secondary-products .product-card').forEach((card) => {
+    document.querySelectorAll('.secondary-products .product-card-shell, .secondary-products > .product-card').forEach((card) => {
         card.hidden = filter !== 'all' && card.dataset.category !== filter;
     });
 }
 
 function addProductFromButton(button) {
-    const productContainer = button.closest('.product-card') || button.closest('.detail-card');
+    const productContainer = button.closest('.product-card-shell') || button.closest('.product-card') || button.closest('.detail-card');
     const productId = Number(button.dataset.productId || productContainer?.dataset.productId || 0);
     const product = products.find((item) => item.id === productId) || productFromCard(productContainer, button);
 
@@ -1033,7 +1037,7 @@ function adminHeaders() {
 }
 
 function extractProductsFromDom() {
-    return Array.from(document.querySelectorAll('.product-card')).map((card, index) => {
+    return Array.from(document.querySelectorAll('.product-card-shell, .product-grid > .product-card')).map((card, index) => {
         const displayCategory = card.dataset.category || 'Accessory';
         const category = productTypeFromDisplay(displayCategory);
         const sizes = defaultSizesForCategory(category);

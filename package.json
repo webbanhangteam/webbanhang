@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "check": "node --check server.js && node --check routes/auth.js && node --check routes/products.js && node --check middleware/adminMiddleware.js && node --check config/db.js && node --check web/script.js"
+    "tailwind:build": "tailwindcss -i ./input.css -o ./web/tailwind.css --minify",
+    "tailwind:watch": "tailwindcss -i ./input.css -o ./web/tailwind.css --watch",
+    "check": "npm run tailwind:build && node --check server.js && node --check routes/auth.js && node --check routes/products.js && node --check middleware/adminMiddleware.js && node --check config/db.js && node --check web/script.js"
   },
   "engines": {
     "node": ">=18"
@@ -15,5 +17,12 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "mysql2": "^3.22.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.0",
+    "@tailwindcss/postcss": "^4.3.0",
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^4.3.0"
   }
 }

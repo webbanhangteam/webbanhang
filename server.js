@@ -454,7 +454,7 @@ function resolveStaticPath(pathname) {
     return safeResolve(webRoot, 'index.html');
   }
 
-  if (route === '/style.css' || route === '/script.js') {
+  if (route === '/style.css' || route === '/tailwind.css' || route === '/script.js') {
     return safeResolve(webRoot, route.slice(1));
   }
 
