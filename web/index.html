@@ -13,7 +13,7 @@
         href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Oswald:wght@500;600;700&display=swap"
         rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="../bootstrap-5.3.8-dist/bootstrap-5.3.8-dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="tailwind.css">
     <link rel="stylesheet" href="style.css">
@@ -21,7 +21,7 @@
 
 <body>
     <div class="top-strip">
-        <span>WEB nay de nop do an</span>
+        <span>Web này để nộp đồ án thôi</span>
     </div>
 
     <header class="site-header sticky-top">
@@ -33,21 +33,22 @@
                 </button>
 
                 <a class="brand" href="#home" aria-label="Shop Anh Thuan">
-                    <img src="./accesst/logo.png" alt="">
-                    <span style="font-family: 'Anton', sans-serif; font-size: 24px;">Shop Anh Thuan</span>
+                    <img src="./assets/logo.png" alt="" loading="lazy" decoding="async">
+                    <span>Shop Anh Thuan</span>
                 </a>
                 <div class="header-actions">
                     <button class="icon-btn" type="button" data-bs-toggle="modal" data-bs-target="#searchModal"
                         aria-label="Tìm kiếm">
                         <i class="bi bi-search"></i>
                     </button>
-                    <a class="icon-btn d-none d-sm-inline-flex" href="#account" id="accountButton" aria-label="Tài khoản">
+                    <a class="icon-btn d-none d-sm-inline-flex" href="#account" id="accountButton"
+                        aria-label="Tài khoản">
                         <i class="bi bi-person"></i>
                     </a>
                     <button class="cart-trigger" type="button" data-bs-toggle="offcanvas" data-bs-target="#cartDrawer"
                         aria-controls="cartDrawer" aria-label="Giỏ hàng">
                         <i class="bi bi-bag"></i>
-                        <span id="cartCount">0</span>
+                        <span id="cartCount" aria-live="polite">0</span>
                     </button>
                 </div>
             </div>
@@ -97,24 +98,24 @@
                         <img src="https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=1900&q=84"
                             class="hero-img" alt="Sneaker trắng trên nền tối">
                         <div class="hero-copy">
-                             <h1 style="font-size: 50px; font-family: 'Anton', sans-serif;">Sneaker chẤt vãi L</h1>
+                            <h1>Sneaker Dinh Cao - Phong Cach Khong Gioi Han</h1>
                             <a href="#new" class="primary-link">Xem sản phẩm mới</a>
                         </div>
                     </article>
                     <article class="carousel-item">
                         <img src="https://images.unsplash.com/photo-1556906781-9a412961c28c?auto=format&fit=crop&w=1900&q=84"
-                            class="hero-img" alt="Kệ giày sneaker nhiều màu">
+                            class="hero-img" alt="Kệ giày sneaker nhiều màu" loading="lazy" decoding="async">
                         <div class="hero-copy">
-                            <h2 style="font-size: 80px; font-family: 'Anton', sans-serif;">Giày, áo và phụ kiện cùng một tinh thần.</h2>
+                            <h2>Giay, Ao Va Phu Kien - Cung Mot Tinh Than</h2>
                             <a href="#products" class="primary-link">Mua ngay</a>
                         </div>
                     </article>
                     <article class="carousel-item">
                         <img src="https://images.unsplash.com/photo-1605348532760-6753d2c43329?auto=format&fit=crop&w=1900&q=84"
-                            class="hero-img" alt="Sneaker streetwear">
+                            class="hero-img" alt="Sneaker streetwear" loading="lazy" decoding="async">
                         <div class="hero-copy">
 
-                            <h2 style="font-size: 80px; font-family: 'Anton', sans-serif;">Boi phố chuẩn Hà Nội gốc 36</h2>
+                            <h2>Streetwear Chuan Pho - Dinh Nghia Phong Cach</h2>
                             <a href="#contact" class="primary-link">Liên hệ shop</a>
                         </div>
                     </article>
@@ -133,16 +134,16 @@
         <section class="feature-grid page-pad">
             <a href="#new" class="feature-tile feature-large">
                 <img src="https://images.unsplash.com/photo-1491553895911-0055eca6402d?auto=format&fit=crop&w=1200&q=84"
-                    alt="Sneaker Nike đặt nghiêng">
+                    alt="Sneaker Nike đặt nghiêng" loading="lazy" decoding="async">
                 <span>Sản phẩm mới</span>
             </a>
             <a href="#accessories" class="feature-tile">
-                <img src="./accesst/image/angel-sphere-len-mau-nam.jpg"
-                    alt="Áo khoác streetwear">
+                <img src="./assets/image/angel-sphere-len-mau-nam.jpg" alt="Áo khoác streetwear" loading="lazy"
+                    decoding="async">
                 <span>Phụ kiện</span>
             </a>
             <a href="#album" class="feature-tile">
-                <img src="./accesst/image/England.jpg" alt="Sản phẩm local">
+                <img src="./assets/image/England.jpg" alt="Sản phẩm local" loading="lazy" decoding="async">
                 <span>Album</span>
             </a>
         </section>
@@ -153,78 +154,7 @@
                 <h2>Sản phẩm mới</h2>
             </div>
 
-            <div class="product-grid" id="productGrid">
-                <article class="product-card" data-name="Air Force 1 Low Triple White" data-category="Sneaker"
-                    data-price="2890000">
-                    <button class="wishlist-btn" type="button" aria-label="Yêu thích"><i
-                            class="bi bi-heart"></i></button>
-                    <a class="product-media" href="#product-detail">
-                        <img src="https://images.unsplash.com/photo-1600269452121-4f2416e55c28?auto=format&fit=crop&w=900&q=84"
-                            alt="Air Force 1 Low Triple White">
-                    </a>
-                    <div class="product-info">
-                        <span>Sneaker</span>
-                        <h3>Air Force 1 Low Triple White</h3>
-                        <div class="product-bottom">
-                            <strong>2.890.000đ</strong>
-                            <button class="add-to-cart" type="button">Thêm</button>
-                        </div>
-                    </div>
-                </article>
-
-                <article class="product-card" data-name="Dunk Low Panda" data-category="Sneaker" data-price="3290000">
-                    <button class="wishlist-btn" type="button" aria-label="Yêu thích"><i
-                            class="bi bi-heart"></i></button>
-                    <a class="product-media" href="#product-detail">
-                        <img src="https://images.unsplash.com/photo-1608231387042-66d1773070a5?auto=format&fit=crop&w=900&q=84"
-                            alt="Dunk Low Panda">
-                    </a>
-                    <div class="product-info">
-                        <span>Sneaker</span>
-                        <h3>Dunk Low Panda</h3>
-                        <div class="product-bottom">
-                            <strong>3.290.000đ</strong>
-                            <button class="add-to-cart" type="button">Thêm</button>
-                        </div>
-                    </div>
-                </article>
-
-                <article class="product-card" data-name="Air Jordan 1 Retro Low" data-category="Sneaker"
-                    data-price="3990000">
-                    <button class="wishlist-btn" type="button" aria-label="Yêu thích"><i
-                            class="bi bi-heart"></i></button>
-                    <a class="product-media" href="#product-detail">
-                        <img src="https://images.unsplash.com/photo-1552346154-21d32810aba3?auto=format&fit=crop&w=900&q=84"
-                            alt="Air Jordan 1 Retro Low">
-                    </a>
-                    <div class="product-info">
-                        <span>Sneaker</span>
-                        <h3>Air Jordan 1 Retro Low</h3>
-                        <div class="product-bottom">
-                            <strong>3.990.000đ</strong>
-                            <button class="add-to-cart" type="button">Thêm</button>
-                        </div>
-                    </div>
-                </article>
-
-                <article class="product-card" data-name="New Balance 550 Cream" data-category="Sneaker"
-                    data-price="3450000">
-                    <button class="wishlist-btn" type="button" aria-label="Yêu thích"><i
-                            class="bi bi-heart"></i></button>
-                    <a class="product-media" href="#product-detail">
-                        <img src="https://images.unsplash.com/photo-1579338559194-a162d19bf842?auto=format&fit=crop&w=900&q=84"
-                            alt="New Balance 550 Cream">
-                    </a>
-                    <div class="product-info">
-                        <span>Sneaker</span>
-                        <h3>New Balance 550 Cream</h3>
-                        <div class="product-bottom">
-                            <strong>3.450.000đ</strong>
-                            <button class="add-to-cart" type="button">Thêm</button>
-                        </div>
-                    </div>
-                </article>
-            </div>
+            <div class="product-grid product-loading" id="productGrid" aria-live="polite"></div>
         </section>
 
         <section id="products" class="section page-pad product-showcase">
@@ -239,77 +169,14 @@
                 <button type="button" data-filter="Accessory">Phụ kiện</button>
             </div>
 
-            <div class="product-grid secondary-products">
-                <article class="product-card" data-name="England Jersey 2026" data-category="Apparel"
-                    data-price="790000">
-                    <a class="product-media" href="#product-detail">
-                        <img src="./accesst/image/England.jpg" alt="England Jersey 2026">
-                    </a>
-                    <div class="product-info">
-                        <span>Apparel</span>
-                        <h3>England Jersey 2026</h3>
-                        <div class="product-bottom">
-                            <strong>790.000đ</strong>
-                            <button class="add-to-cart" type="button">Thêm</button>
-                        </div>
-                    </div>
-                </article>
-
-                <article class="product-card" data-name="Sling Bag Minimal Black" data-category="Accessory"
-                    data-price="450000">
-                    <a class="product-media" href="#product-detail">
-                        <img src="https://images.unsplash.com/photo-1594223274512-ad4803739b7c?auto=format&fit=crop&w=900&q=84"
-                            alt="Sling Bag Minimal Black">
-                    </a>
-                    <div class="product-info">
-                        <span>Accessory</span>
-                        <h3>Sling Bag Minimal Black</h3>
-                        <div class="product-bottom">
-                            <strong>450.000đ</strong>
-                            <button class="add-to-cart" type="button">Thêm</button>
-                        </div>
-                    </div>
-                </article>
-
-                <article class="product-card" data-name="Street Cap Washed Grey" data-category="Accessory"
-                    data-price="320000">
-                    <a class="product-media" href="#product-detail">
-                        <img src="https://images.unsplash.com/photo-1529958030586-3aae4ca485ff?auto=format&fit=crop&w=900&q=84"
-                            alt="Street Cap Washed Grey">
-                    </a>
-                    <div class="product-info">
-                        <span>Accessory</span>
-                        <h3>Street Cap Washed Grey</h3>
-                        <div class="product-bottom">
-                            <strong>320.000đ</strong>
-                            <button class="add-to-cart" type="button">Thêm</button>
-                        </div>
-                    </div>
-                </article>
-
-                <article class="product-card" data-name="Boxy Tee Essential" data-category="Apparel"
-                    data-price="390000">
-                    <a class="product-media" href="#product-detail">
-                        <img src="https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=84"
-                            alt="Boxy Tee Essential">
-                    </a>
-                    <div class="product-info">
-                        <span>Apparel</span>
-                        <h3>Boxy Tee Essential</h3>
-                        <div class="product-bottom">
-                            <strong>390.000đ</strong>
-                            <button class="add-to-cart" type="button">Thêm</button>
-                        </div>
-                    </div>
-                </article>
-            </div>
+            <div class="product-grid secondary-products product-loading" aria-live="polite"></div>
         </section>
 
         <section id="accessories" class="wide-promo" style="position: relative;">
-            <img src="./accesst/image/test.jpg?auto=format&fit=crop&w=1200&q=84"
-                alt="Streetwear lookbook">
+            <img src="./assets/image/test.jpg?auto=format&fit=crop&w=1200&q=84" alt="Streetwear lookbook" loading="lazy"
+                decoding="async">
             <div class="wide-promo-copy">
-                <h2 style="margin: 0; font-size: 80px;font-family: 'Script';">Hoàn thiện outfit bằng những món nhỏ nhưng đúng chất.</h2>
+                <h2>Hoàn thiện outfit bằng những món nhỏ nhưng đúng chất.</h2>
                 <a href="#products" class="light-link">Xem phụ kiện</a>
             </div>
         </section>
@@ -318,14 +185,14 @@
             <div class="detail-grid">
                 <div class="detail-gallery">
                     <img src="https://images.unsplash.com/photo-1600269452121-4f2416e55c28?auto=format&fit=crop&w=1200&q=84"
-                        alt="Chi tiết sneaker trắng">
+                        alt="Chi tiết sneaker trắng" loading="lazy" decoding="async">
                     <div class="thumbs">
                         <img src="https://images.unsplash.com/photo-1543508282-6319a3e2621f?auto=format&fit=crop&w=500&q=84"
-                            alt="Góc bên sneaker">
+                            alt="Góc bên sneaker" loading="lazy" decoding="async">
                         <img src="https://images.unsplash.com/photo-1605348532760-6753d2c43329?auto=format&fit=crop&w=500&q=84"
-                            alt="Sneaker on feet">
+                            alt="Sneaker on feet" loading="lazy" decoding="async">
                         <img src="https://images.unsplash.com/photo-1515955656352-a1fa3ffcd111?auto=format&fit=crop&w=500&q=84"
-                            alt="Chi tiết đế giày">
+                            alt="Chi tiết đế giày" loading="lazy" decoding="async">
                     </div>
                 </div>
                 <article class="detail-card">
@@ -372,12 +239,12 @@
                 <h2>Album</h2>
             </div>
             <div class="album-grid">
-                <img src="./accesst/image/686915400_957856023667984_5178692997048394526_n.jpg"
-                    alt="Lookbook sneaker 1">
+                <img src="./assets/image/686915400_957856023667984_5178692997048394526_n.jpg" alt="Lookbook sneaker 1"
+                    loading="lazy" decoding="async">
                 <img src="https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=900&q=84"
-                    alt="Lookbook streetwear 2">
+                    alt="Lookbook streetwear 2" loading="lazy" decoding="async">
                 <img src="https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?auto=format&fit=crop&w=900&q=84"
-                    alt="Lookbook streetwear 3">
+                    alt="Lookbook streetwear 3" loading="lazy" decoding="async">
             </div>
         </section>
 
@@ -538,7 +405,7 @@
         <div class="footer-grid">
             <div class="footer-brand">
                 <a class="brand" href="#home">
-                    <img src="./accesst/logo.png" alt="">
+                    <img src="./assets/logo.png" alt="" loading="lazy" decoding="async">
                     <span>TANGTHUAN STORE</span>
                 </a>
                 <p>Sắp tới bán đồ tại Hà Nội.</p>
@@ -593,8 +460,7 @@
         </div>
     </div>
 
-    <div class="modal fade auth-modal" id="authModal" tabindex="-1" aria-labelledby="authModalLabel"
-        aria-hidden="true">
+    <div class="modal fade auth-modal" id="authModal" tabindex="-1" aria-labelledby="authModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
                 <div class="modal-header">
@@ -613,7 +479,8 @@
                         </li>
                     </ul>
                     <div class="tab-content auth-content">
-                        <div class="tab-pane fade show active" id="loginPane" role="tabpanel" aria-labelledby="loginTab">
+                        <div class="tab-pane fade show active" id="loginPane" role="tabpanel"
+                            aria-labelledby="loginTab">
                             <form id="loginForm" class="auth-form">
                                 <label>
                                     Username
@@ -666,7 +533,7 @@
         </div>
     </div>
 
-    <script src="../bootstrap-5.3.8-dist/bootstrap-5.3.8-dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
     <script src="script.js">
 
     </script>

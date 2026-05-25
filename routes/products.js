@@ -1,6 +1,10 @@
 const fs = require('fs');
 const db = require('../config/db');
 
+let productsCache = null;
+let productsCacheTime = 0;
+const productsCacheTtl = 30 * 1000;
+
 const defaultProducts = [
   {
     id: 1,
@@ -52,7 +56,7 @@ const defaultProducts = [
     category: 'clothing',
     displayCategory: 'Apparel',
     price: 790000,
-    image: './accesst/image/England.jpg',
+    image: './assets/image/England.jpg',
     section: 'products',
     sizes: ['S', 'M', 'L', 'XL'],
     stock: { S: 5, M: 8, L: 6, XL: 3 }
@@ -66,7 +70,8 @@ const defaultProducts = [
     image: 'https://images.unsplash.com/photo-1594223274512-ad4803739b7c?auto=format&fit=crop&w=900&q=84',
     section: 'products',
     sizes: [],
-    stock: {}
+    stock: {},
+    totalStock: 12
   },
   {
     id: 7,
@@ -77,7 +82,8 @@ const defaultProducts = [
     image: 'https://images.unsplash.com/photo-1529958030586-3aae4ca485ff?auto=format&fit=crop&w=900&q=84',
     section: 'products',
     sizes: [],
-    stock: {}
+    stock: {},
+    totalStock: 18
   },
   {
     id: 8,
@@ -130,7 +136,9 @@ async function handleProductsRoute(req, res, requestUrl, context) {
       return true;
     }
 
-    const body = await context.readRequestBody(req);
+    const body = await readBodyOrBadRequest(req, res, context);
+    if (!body) return true;
+
     let product;
 
     try {
@@ -144,6 +152,7 @@ async function handleProductsRoute(req, res, requestUrl, context) {
     }
 
     product = await createProduct(product);
+    invalidateProductsCache();
     context.sendJson(res, 201, {
       ok: true,
       product,
@@ -175,7 +184,9 @@ async function handleProductsRoute(req, res, requestUrl, context) {
       return true;
     }
 
-    const body = await context.readRequestBody(req);
+    const body = await readBodyOrBadRequest(req, res, context);
+    if (!body) return true;
+
     const current = await getProductById(route.id);
 
     if (!current) {
@@ -198,6 +209,7 @@ async function handleProductsRoute(req, res, requestUrl, context) {
     }
 
     product = await updateProduct(route.id, product);
+    invalidateProductsCache();
     context.sendJson(res, 200, {
       ok: true,
       product,
@@ -213,6 +225,7 @@ async function handleProductsRoute(req, res, requestUrl, context) {
     }
 
     const [result] = await db.execute('DELETE FROM products WHERE id = ?', [route.id]);
+    invalidateProductsCache();
     if (!result.affectedRows) {
       context.sendJson(res, 404, {
         ok: false,
@@ -251,12 +264,28 @@ function parseProductsPath(pathname) {
   };
 }
 
+async function readBodyOrBadRequest(req, res, context) {
+  try {
+    return await context.readRequestBody(req);
+  } catch (err) {
+    context.sendJson(res, 400, {
+      ok: false,
+      message: err.message || 'Body khong hop le'
+    });
+    return null;
+  }
+}
+
 function normalizeProduct(input, current, products) {
   const base = current || {};
   const nextId = products.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1;
   const category = normalizeCategory(input.category || base.category);
   const sizes = normalizeSizes(input.sizes !== undefined ? input.sizes : base.sizes);
   const stock = normalizeStock(input.stock !== undefined ? input.stock : base.stock, sizes);
+  const totalStock = normalizeTotalStock(
+    input.totalStock !== undefined ? input.totalStock : base.totalStock,
+    sizes
+  );
   const price = Number(input.price !== undefined ? input.price : base.price);
   const name = String(input.name !== undefined ? input.name : base.name || '').trim();
 
@@ -277,14 +306,15 @@ function normalizeProduct(input, current, products) {
     image: String(input.image !== undefined ? input.image : base.image || '').trim(),
     section: normalizeSection(input.section || base.section),
     sizes,
-    stock
+    stock,
+    totalStock
   };
 }
 
 async function createProduct(product) {
   const [result] = await db.execute(
-    `INSERT INTO products (name, category, display_category, price, image, section, sizes, stock)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO products (name, category, display_category, price, image, section, sizes, stock, total_stock)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     productToParams(product).slice(1)
   );
 
@@ -295,7 +325,7 @@ async function updateProduct(id, product) {
   await db.execute(
     `UPDATE products
      SET name = ?, category = ?, display_category = ?, price = ?, image = ?, section = ?,
-         sizes = ?, stock = ?
+         sizes = ?, stock = ?, total_stock = ?
      WHERE id = ?`,
     [...productToParams(product).slice(1), Number(id)]
   );
@@ -309,8 +339,14 @@ async function getProductById(id) {
 }
 
 async function readProducts() {
+  if (productsCache && Date.now() - productsCacheTime < productsCacheTtl) {
+    return productsCache;
+  }
+
   const [rows] = await db.execute('SELECT * FROM products ORDER BY id');
-  return rows.map(rowToProduct);
+  productsCache = rows.map(rowToProduct);
+  productsCacheTime = Date.now();
+  return productsCache;
 }
 
 async function writeProducts(filePath, products) {
@@ -320,11 +356,13 @@ async function writeProducts(filePath, products) {
     const product = normalizeProduct(input, input.id ? { id: input.id } : null, products);
     await db.execute(
       `INSERT IGNORE INTO products
-       (id, name, category, display_category, price, image, section, sizes, stock)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, name, category, display_category, price, image, section, sizes, stock, total_stock)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       productToParams(product)
     );
   }
+
+  invalidateProductsCache();
 }
 
 function productToParams(product) {
@@ -337,7 +375,8 @@ function productToParams(product) {
     product.image,
     product.section,
     JSON.stringify(product.sizes || []),
-    JSON.stringify(product.stock || {})
+    JSON.stringify(product.stock || {}),
+    product.totalStock === null || product.totalStock === undefined ? null : Number(product.totalStock) || 0
   ];
 }
 
@@ -353,8 +392,14 @@ function rowToProduct(row) {
     image: row.image || '',
     section: row.section,
     sizes: parseJson(row.sizes, []),
-    stock: parseJson(row.stock, {})
+    stock: parseJson(row.stock, {}),
+    totalStock: row.total_stock === null || row.total_stock === undefined ? null : Number(row.total_stock)
   };
+}
+
+function invalidateProductsCache() {
+  productsCache = null;
+  productsCacheTime = 0;
 }
 
 function parseJson(value, fallback) {
@@ -426,6 +471,15 @@ function normalizeStock(value, sizes) {
   });
 
   return stock;
+}
+
+function normalizeTotalStock(value, sizes) {
+  if (sizes.length) return null;
+  if (value === null || value === undefined || value === '') return null;
+
+  const totalStock = Number(value);
+  if (!Number.isFinite(totalStock)) return null;
+  return Math.max(0, Math.trunc(totalStock));
 }
 
 module.exports = {

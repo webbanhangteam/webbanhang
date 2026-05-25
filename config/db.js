@@ -51,6 +51,7 @@ async function initDatabase() {
       section VARCHAR(40) NOT NULL DEFAULT 'products',
       sizes JSON NOT NULL,
       stock JSON NOT NULL,
+      total_stock INT UNSIGNED NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id)
@@ -106,6 +107,17 @@ async function initDatabase() {
     'stock_applied',
     'ALTER TABLE orders ADD COLUMN stock_applied TINYINT(1) NOT NULL DEFAULT 0 AFTER status'
   );
+
+  await ensureColumnExists(
+    'products',
+    'total_stock',
+    'ALTER TABLE products ADD COLUMN total_stock INT UNSIGNED NULL AFTER stock'
+  );
+
+  await ensureIndexExists('products', 'idx_products_category', 'ALTER TABLE products ADD INDEX idx_products_category (category)');
+  await ensureIndexExists('products', 'idx_products_section', 'ALTER TABLE products ADD INDEX idx_products_section (section)');
+  await ensureIndexExists('orders', 'idx_orders_status', 'ALTER TABLE orders ADD INDEX idx_orders_status (status)');
+  await ensureIndexExists('orders', 'idx_orders_provider', 'ALTER TABLE orders ADD INDEX idx_orders_provider (provider)');
 }
 
 async function ensureColumnExists(tableName, columnName, alterSql) {
@@ -114,6 +126,19 @@ async function ensureColumnExists(tableName, columnName, alterSql) {
      FROM information_schema.COLUMNS
      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
     [dbName, tableName, columnName]
+  );
+
+  if (!count) {
+    await pool.execute(alterSql);
+  }
+}
+
+async function ensureIndexExists(tableName, indexName, alterSql) {
+  const [[{ count }]] = await pool.execute(
+    `SELECT COUNT(*) AS count
+     FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+    [dbName, tableName, indexName]
   );
 
   if (!count) {
@@ -131,6 +156,14 @@ async function ensureDatabaseExists() {
     await connection.end();
   }
 }
+
+setInterval(async () => {
+  try {
+    await pool.execute('SELECT 1');
+  } catch (err) {
+    console.error('DB health check failed:', err.message);
+  }
+}, 60000).unref();
 
 module.exports = pool;
 module.exports.initDatabase = initDatabase;

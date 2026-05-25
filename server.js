@@ -1,3 +1,4 @@
+require('dotenv').config();
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -7,12 +8,11 @@ const db = require('./config/db');
 const { ensureUserDataFile, handleAuthRoute, getUserByUsername } = require('./routes/auth');
 const { ensureProductsDataFile, handleProductsRoute, readProducts } = require('./routes/products');
 const { getRequestToken, isAdminRequest, sendForbidden } = require('./middleware/adminMiddleware');
-
-loadEnvFile(path.join(__dirname, '.env'));
+const { createRateLimiter } = require('./middleware/rateLimiter');
 
 const root = path.resolve(__dirname);
 const webRoot = path.join(root, 'web');
-const assetsRoot = path.join(webRoot, 'accesst');
+const assetsRoot = path.join(webRoot, 'assets');
 const bootstrapRoot = path.join(root, 'bootstrap-5.3.8-dist');
 const port = process.env.PORT || 3000;
 const host = process.env.HOST || '0.0.0.0';
@@ -23,6 +23,28 @@ const userDataFile = path.join(root, 'data', 'DATA.txt');
 const productsDataFile = path.join(root, 'data', 'products.json');
 const maxBodySize = parsePositiveNumber(process.env.MAX_BODY_SIZE, 1024 * 1024);
 const sessionMaxAgeMs = parsePositiveNumber(process.env.SESSION_MAX_AGE_MS, 1000 * 60 * 60 * 12);
+const allowedOrigins = String(process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+const defaultAdminPassword = 'change-this-admin-password';
+
+const authRateLimiter = createRateLimiter({
+  rules: [
+    {
+      method: 'POST',
+      paths: ['/api/auth/login', '/api/v1/auth/login'],
+      limit: 10,
+      windowMs: 60 * 1000
+    },
+    {
+      method: 'POST',
+      paths: ['/api/auth/register', '/api/v1/auth/register'],
+      limit: 5,
+      windowMs: 60 * 1000
+    }
+  ]
+});
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -36,6 +58,14 @@ const mimeTypes = {
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon'
+};
+
+const securityHeaders = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'X-XSS-Protection': '1; mode=block',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Content-Security-Policy': 'default-src \'self\'; script-src \'self\' \'unsafe-inline\' https://cdn.jsdelivr.net; style-src \'self\' \'unsafe-inline\' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src \'self\' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src \'self\' https://images.unsplash.com data:'
 };
 
 const momoConfig = {
@@ -59,6 +89,7 @@ const zalopayConfig = {
 
 const server = http.createServer(async (req, res) => {
   try {
+    res._request = req;
     const requestUrl = new URL(req.url, `http://${req.headers.host || `localhost:${port}`}`);
 
     if (isApiRequestPath(requestUrl.pathname)) {
@@ -66,7 +97,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    serveStatic(requestUrl.pathname, res);
+    serveStatic(requestUrl.pathname, req, res);
   } catch (err) {
     console.error('Request error:', err);
     sendJson(res, 500, { ok: false, message: 'Loi may chu noi bo' });
@@ -79,12 +110,30 @@ async function handleApi(req, res, requestUrl) {
     return;
   }
 
-  if (req.method === 'GET' && (requestUrl.pathname === '/api/health' || requestUrl.pathname === '/health')) {
-    sendJson(res, 200, {
-      ok: true,
+  const routeUrl = new URL(requestUrl);
+  routeUrl.pathname = normalizeApiPath(requestUrl.pathname);
+
+  if (req.method === 'GET' && (routeUrl.pathname === '/api/health' || routeUrl.pathname === '/health')) {
+    let dbOk = false;
+    try {
+      await db.execute('SELECT 1');
+      dbOk = true;
+    } catch {
+      dbOk = false;
+    }
+
+    sendJson(res, dbOk ? 200 : 503, {
+      ok: dbOk,
       service: 'shop-anh-thuan',
+      database: dbOk ? 'connected' : 'disconnected',
+      uptime: process.uptime(),
+      memory: process.memoryUsage().rss,
       time: new Date().toISOString()
     });
+    return;
+  }
+
+  if (authRateLimiter(req, res, routeUrl, sendJson)) {
     return;
   }
 
@@ -101,55 +150,55 @@ async function handleApi(req, res, requestUrl) {
     sendForbidden
   };
 
-  if (await handleAuthRoute(req, res, requestUrl, routeContext)) {
+  if (await handleAuthRoute(req, res, routeUrl, routeContext)) {
     return;
   }
 
-  if (await handleProductsRoute(req, res, requestUrl, routeContext)) {
+  if (await handleProductsRoute(req, res, routeUrl, routeContext)) {
     return;
   }
 
-  if (req.method === 'POST' && requestUrl.pathname === '/api/payments/momo') {
+  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/momo') {
     await createMomoPayment(req, res);
     return;
   }
 
-  if (req.method === 'POST' && requestUrl.pathname === '/api/payments/momo/ipn') {
+  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/momo/ipn') {
     await handleMomoIpn(req, res);
     return;
   }
 
-  if (req.method === 'GET' && requestUrl.pathname === '/api/payments/momo/return') {
+  if (req.method === 'GET' && routeUrl.pathname === '/api/payments/momo/return') {
     sendPaymentReturn(res, 'MoMo', Object.fromEntries(requestUrl.searchParams.entries()));
     return;
   }
 
-  if (req.method === 'POST' && requestUrl.pathname === '/api/payments/zalopay') {
+  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/zalopay') {
     await createZaloPayPayment(req, res);
     return;
   }
 
-  if (req.method === 'POST' && requestUrl.pathname === '/api/payments/zalopay/callback') {
+  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/zalopay/callback') {
     await handleZaloPayCallback(req, res);
     return;
   }
 
-  if (req.method === 'GET' && requestUrl.pathname === '/api/payments/zalopay/return') {
+  if (req.method === 'GET' && routeUrl.pathname === '/api/payments/zalopay/return') {
     sendPaymentReturn(res, 'ZaloPay', Object.fromEntries(requestUrl.searchParams.entries()));
     return;
   }
 
-  if (req.method === 'POST' && requestUrl.pathname === '/api/payments/zalopay/status') {
+  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/zalopay/status') {
     await queryZaloPayStatus(req, res);
     return;
   }
 
-  if (req.method === 'POST' && requestUrl.pathname === '/api/payments/cod') {
+  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/cod') {
     await createCodOrder(req, res);
     return;
   }
 
-  if (req.method === 'GET' && requestUrl.pathname === '/api/orders/me') {
+  if (req.method === 'GET' && routeUrl.pathname === '/api/orders/me') {
     const user = getSessionFromRequest(req);
     if (!user) {
       sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
@@ -160,7 +209,7 @@ async function handleApi(req, res, requestUrl) {
     return;
   }
 
-  if (req.method === 'GET' && requestUrl.pathname === '/api/orders') {
+  if (req.method === 'GET' && routeUrl.pathname === '/api/orders') {
     if (!isAdminRequest(req, getSessionFromRequest)) {
       sendForbidden(res, sendJson);
       return;
@@ -175,14 +224,33 @@ async function handleApi(req, res, requestUrl) {
 
 function isApiRequestPath(pathname) {
   return pathname.startsWith('/api/') ||
-    pathname === '/health' ||
-    pathname === '/register' ||
-    pathname === '/login' ||
-    pathname === '/logout';
+    pathname === '/health';
+}
+
+function normalizeApiPath(pathname) {
+  if (pathname === '/api/v1') return '/api';
+  if (pathname.startsWith('/api/v1/')) {
+    return `/api/${pathname.slice('/api/v1/'.length)}`;
+  }
+  return pathname;
 }
 
 async function createMomoPayment(req, res) {
-  const body = await readRequestBody(req);
+  const sessionUser = getSessionFromRequest(req);
+  if (!sessionUser) {
+    sendJson(res, 401, { ok: false, message: 'Vui long dang nhap truoc khi thanh toan' });
+    return;
+  }
+
+  const user = await getUserByUsername(sessionUser.username);
+  if (!user) {
+    sendJson(res, 404, { ok: false, message: 'Khong tim thay tai khoan' });
+    return;
+  }
+
+  const body = await readRequestBodySafely(req, res);
+  if (!body) return;
+
   const order = await createOrderFromCart(body.items);
 
   if (!order.ok) {
@@ -229,7 +297,7 @@ async function createMomoPayment(req, res) {
     lang: 'vi'
   };
 
-  await createLocalOrder('momo', orderId, order, orderInfo, getSessionFromRequest(req), 'CREATED');
+  await createLocalOrder('momo', orderId, order, orderInfo, toOrderCustomer(user), { status: 'CREATED' });
 
   try {
     const momoResponse = await postJson(momoConfig.endpoint, payload);
@@ -243,7 +311,9 @@ async function createMomoPayment(req, res) {
 }
 
 async function handleMomoIpn(req, res) {
-  const body = await readRequestBody(req);
+  const body = await readRequestBodySafely(req, res);
+  if (!body) return;
+
   const rawSignature =
     `accessKey=${body.accessKey || momoConfig.accessKey}` +
     `&amount=${body.amount || ''}` +
@@ -268,7 +338,21 @@ async function handleMomoIpn(req, res) {
 }
 
 async function createZaloPayPayment(req, res) {
-  const body = await readRequestBody(req);
+  const sessionUser = getSessionFromRequest(req);
+  if (!sessionUser) {
+    sendJson(res, 401, { ok: false, message: 'Vui long dang nhap truoc khi thanh toan' });
+    return;
+  }
+
+  const user = await getUserByUsername(sessionUser.username);
+  if (!user) {
+    sendJson(res, 404, { ok: false, message: 'Khong tim thay tai khoan' });
+    return;
+  }
+
+  const body = await readRequestBodySafely(req, res);
+  if (!body) return;
+
   const order = await createOrderFromCart(body.items);
 
   if (!order.ok) {
@@ -304,7 +388,7 @@ async function createZaloPayPayment(req, res) {
     mac: hmacSha256(zalopayConfig.key1, raw)
   };
 
-  await createLocalOrder('zalopay', appTransId, order, description, getSessionFromRequest(req), 'CREATED');
+  await createLocalOrder('zalopay', appTransId, order, description, toOrderCustomer(user), { status: 'CREATED' });
 
   try {
     const zaloResponse = await postJson(zalopayConfig.createUrl, payload);
@@ -324,7 +408,9 @@ async function createZaloPayPayment(req, res) {
 }
 
 async function handleZaloPayCallback(req, res) {
-  const body = await readRequestBody(req);
+  const body = await readRequestBodySafely(req, res);
+  if (!body) return;
+
   const { data, mac } = body;
 
   if (!data || !mac) {
@@ -351,7 +437,9 @@ async function handleZaloPayCallback(req, res) {
 }
 
 async function queryZaloPayStatus(req, res) {
-  const body = await readRequestBody(req);
+  const body = await readRequestBodySafely(req, res);
+  if (!body) return;
+
   const appTransId = body.app_trans_id || body.orderId;
   if (!appTransId) {
     sendJson(res, 400, { ok: false, message: 'Missing app_trans_id' });
@@ -390,7 +478,9 @@ async function createCodOrder(req, res) {
     return;
   }
 
-  const body = await readRequestBody(req);
+  const body = await readRequestBodySafely(req, res);
+  if (!body) return;
+
   const order = await createOrderFromCart(body.items);
 
   if (!order.ok) {
@@ -422,21 +512,21 @@ async function createCodOrder(req, res) {
   });
 }
 
-function serveStatic(pathname, res) {
+function serveStatic(pathname, req, res) {
   const filePath = resolveStaticPath(pathname);
 
   if (!filePath) {
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.writeHead(404, { ...securityHeaders, 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('404 - Khong tim thay tep');
     return;
   }
 
   fs.stat(filePath, (err, stats) => {
     if (!err && stats.isDirectory()) {
-      serveFile(path.join(filePath, 'index.html'), res);
+      serveFile(path.join(filePath, 'index.html'), req, res);
       return;
     }
-    serveFile(filePath, res);
+    serveFile(filePath, req, res);
   });
 }
 
@@ -456,6 +546,10 @@ function resolveStaticPath(pathname) {
 
   if (route === '/style.css' || route === '/tailwind.css' || route === '/script.js') {
     return safeResolve(webRoot, route.slice(1));
+  }
+
+  if (route.startsWith('/assets/')) {
+    return safeResolve(assetsRoot, route.slice('/assets/'.length));
   }
 
   if (route.startsWith('/accesst/')) {
@@ -484,19 +578,52 @@ function safeResolve(basePath, ...segments) {
   return target;
 }
 
-function serveFile(filePath, res) {
+function serveFile(filePath, req, res) {
   const ext = path.extname(filePath).toLowerCase();
   const contentType = mimeTypes[ext] || 'application/octet-stream';
+  const isAsset = /\.(avif|gif|ico|jpe?g|png|svg|webp|woff2?)$/i.test(ext);
 
-  fs.readFile(filePath, (err, content) => {
+  fs.stat(filePath, (statErr, stats) => {
+    if (statErr) {
+      res.writeHead(statErr.code === 'ENOENT' ? 404 : 500, {
+        ...securityHeaders,
+        'Content-Type': 'text/plain; charset=utf-8'
+      });
+      res.end(statErr.code === 'ENOENT' ? '404 - Khong tim thay tep' : 'Loi may chu noi bo');
+      return;
+    }
+
+    const etag = `"${stats.size}-${Math.trunc(stats.mtimeMs)}"`;
+    const cacheControl = isAsset ? 'public, max-age=86400' : 'public, max-age=0, must-revalidate';
+
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, {
+        ...securityHeaders,
+        'Cache-Control': cacheControl,
+        ETag: etag
+      });
+      res.end();
+      return;
+    }
+
+    fs.readFile(filePath, (err, content) => {
     if (err) {
-      res.writeHead(err.code === 'ENOENT' ? 404 : 500, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.writeHead(err.code === 'ENOENT' ? 404 : 500, {
+        ...securityHeaders,
+        'Content-Type': 'text/plain; charset=utf-8'
+      });
       res.end(err.code === 'ENOENT' ? '404 - Khong tim thay tep' : 'Loi may chu noi bo');
       return;
     }
 
-    res.writeHead(200, { 'Content-Type': contentType });
+    res.writeHead(200, {
+      ...securityHeaders,
+      'Content-Type': contentType,
+      'Cache-Control': cacheControl,
+      ETag: etag
+    });
     res.end(content);
+  });
   });
 }
 
@@ -535,6 +662,18 @@ function readRequestBody(req) {
     });
     req.on('error', reject);
   });
+}
+
+async function readRequestBodySafely(req, res) {
+  try {
+    return await readRequestBody(req);
+  } catch (err) {
+    sendJson(res, 400, {
+      ok: false,
+      message: err.message || 'Body khong hop le'
+    });
+    return null;
+  }
 }
 
 function postJson(url, payload) {
@@ -587,7 +726,8 @@ function request(url, body, headers) {
 
 function sendJson(res, statusCode, payload) {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    ...securityHeaders,
+    ...getCorsHeaders(res._request),
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Session-Token',
     'Content-Type': 'application/json; charset=utf-8'
@@ -604,7 +744,10 @@ function sendJson(res, statusCode, payload) {
 }
 
 function sendPaymentReturn(res, provider, params) {
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.writeHead(200, {
+    ...securityHeaders,
+    'Content-Type': 'text/html; charset=utf-8'
+  });
   res.end(`<!doctype html>
 <html lang="vi">
 <head>
@@ -620,6 +763,25 @@ function sendPaymentReturn(res, provider, params) {
   <p><a href="/">Quay lai UrbanCart</a></p>
 </body>
 </html>`);
+}
+
+function getCorsHeaders(req) {
+  const origin = req?.headers?.origin;
+
+  if (origin && allowedOrigins.includes(origin)) {
+    return {
+      'Access-Control-Allow-Origin': origin,
+      Vary: 'Origin'
+    };
+  }
+
+  if (process.env.NODE_ENV === 'development' && !allowedOrigins.length) {
+    return {
+      'Access-Control-Allow-Origin': '*'
+    };
+  }
+
+  return {};
 }
 
 function hmacSha256(key, data) {
@@ -689,15 +851,17 @@ function destroySession(req) {
 }
 
 async function createOrderFromCart(items) {
-  if (!Array.isArray(items) || !items.length) {
+  const validationMessage = validateCartItems(items);
+  if (validationMessage) {
     return {
       ok: false,
-      message: 'Gio hang trong'
+      message: validationMessage
     };
   }
 
   const products = await readProducts();
   const orderItems = [];
+  const requestedQuantities = new Map();
 
   for (const item of items) {
     const productId = Number(item.productId || item.id);
@@ -737,11 +901,29 @@ async function createOrderFromCart(items) {
       }
 
       const stock = Number(product.stock?.[size] || 0);
-      if (quantity > stock) {
+      const key = `${product.id}:${size}`;
+      const requested = (requestedQuantities.get(key) || 0) + quantity;
+      requestedQuantities.set(key, requested);
+
+      if (requested > stock) {
         return {
           ok: false,
           message: 'So luong vuot qua ton kho'
         };
+      }
+    } else {
+      const totalStock = getProductTotalStock(product);
+      if (totalStock !== null) {
+        const key = `${product.id}:__total`;
+        const requested = (requestedQuantities.get(key) || 0) + quantity;
+        requestedQuantities.set(key, requested);
+
+        if (requested > totalStock) {
+          return {
+            ok: false,
+            message: 'So luong vuot qua ton kho'
+          };
+        }
       }
     }
 
@@ -779,12 +961,46 @@ async function createOrderFromCart(items) {
   };
 }
 
+function validateCartItems(items) {
+  if (!Array.isArray(items) || !items.length) {
+    return 'Gio hang trong';
+  }
+
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return 'San pham trong gio hang khong hop le';
+    }
+
+    const productId = Number(item.productId || item.id);
+    const quantity = Number(item.quantity || item.qty);
+
+    if (!Number.isInteger(productId) || productId <= 0) {
+      return 'Ma san pham khong hop le';
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return 'So luong san pham khong hop le';
+    }
+  }
+
+  return null;
+}
+
 function requiresProductSize(product) {
   return ['shoes', 'clothing'].includes(product.category) || getProductSizes(product).length > 0;
 }
 
 function getProductSizes(product) {
   return Array.isArray(product.sizes) ? product.sizes.map(size => String(size)) : [];
+}
+
+function getProductTotalStock(product) {
+  if (product.totalStock === null || product.totalStock === undefined || product.totalStock === '') {
+    return null;
+  }
+
+  const totalStock = Number(product.totalStock);
+  return Number.isFinite(totalStock) ? Math.max(0, totalStock) : null;
 }
 
 function hasDeliveryProfile(user) {
@@ -951,10 +1167,10 @@ async function applyOrderStockByDbId(connection, orderDbId) {
   );
 
   for (const item of items) {
-    if (!item.product_id || !item.size) continue;
+    if (!item.product_id) continue;
 
     const [productRows] = await connection.execute(
-      'SELECT id, stock FROM products WHERE id = ? FOR UPDATE',
+      'SELECT id, stock, total_stock FROM products WHERE id = ? FOR UPDATE',
       [item.product_id]
     );
 
@@ -962,19 +1178,35 @@ async function applyOrderStockByDbId(connection, orderDbId) {
       throw new Error('San pham trong don khong con ton tai');
     }
 
-    const stock = parseJson(productRows[0].stock, {});
-    const size = String(item.size);
-    const currentStock = Number(stock[size] || 0);
     const quantity = Number(item.quantity || 0);
 
-    if (currentStock < quantity) {
-      throw new Error(`Khong du ton kho cho san pham #${item.product_id} size ${size}`);
+    if (item.size) {
+      const stock = parseJson(productRows[0].stock, {});
+      const size = String(item.size);
+      const currentStock = Number(stock[size] || 0);
+
+      if (currentStock < quantity) {
+        throw new Error(`Khong du ton kho cho san pham #${item.product_id} size ${size}`);
+      }
+
+      stock[size] = currentStock - quantity;
+      await connection.execute(
+        'UPDATE products SET stock = ? WHERE id = ?',
+        [JSON.stringify(stock), item.product_id]
+      );
+      continue;
     }
 
-    stock[size] = currentStock - quantity;
+    if (productRows[0].total_stock === null || productRows[0].total_stock === undefined) continue;
+
+    const currentStock = Number(productRows[0].total_stock || 0);
+    if (currentStock < quantity) {
+      throw new Error(`Khong du ton kho cho san pham #${item.product_id}`);
+    }
+
     await connection.execute(
-      'UPDATE products SET stock = ? WHERE id = ?',
-      [JSON.stringify(stock), item.product_id]
+      'UPDATE products SET total_stock = ? WHERE id = ?',
+      [currentStock - quantity, item.product_id]
     );
   }
 
@@ -1091,23 +1323,6 @@ function parsePositiveNumber(value, fallback) {
   return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
-function loadEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) return;
-
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
-  lines.forEach(line => {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) return;
-    const separator = trimmed.indexOf('=');
-    if (separator === -1) return;
-    const key = trimmed.slice(0, separator).trim();
-    const value = trimmed.slice(separator + 1).trim().replace(/^['"]|['"]$/g, '');
-    if (key && process.env[key] === undefined) {
-      process.env[key] = value;
-    }
-  });
-}
-
 function escapeHtml(value) {
   return value
     .replace(/&/g, '&amp;')
@@ -1119,6 +1334,7 @@ function escapeHtml(value) {
 
 async function startServer() {
   await db.initDatabase();
+  warnOnUnsafeDefaults();
   await ensureUserDataFile(userDataFile);
   await ensureProductsDataFile(productsDataFile);
 
@@ -1127,6 +1343,35 @@ async function startServer() {
     console.log(`Public URL: ${publicBaseUrl}`);
   });
 }
+
+function warnOnUnsafeDefaults() {
+  if (process.env.DEFAULT_ADMIN_PASSWORD === defaultAdminPassword) {
+    console.warn('CANH BAO: Dang dung mat khau admin mac dinh. Vui long doi DEFAULT_ADMIN_PASSWORD trong .env');
+  }
+}
+
+async function shutdown(signal) {
+  console.log(`${signal} received. Shutting down gracefully...`);
+
+  server.close(async () => {
+    try {
+      await db.end();
+    } catch (err) {
+      console.error('Khong dong duoc ket noi DB:', err.message);
+    }
+
+    console.log('Server closed.');
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    console.error('Force shutdown after timeout.');
+    process.exit(1);
+  }, 10000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 startServer().catch((err) => {
   console.error('Khong khoi dong duoc server:', err);

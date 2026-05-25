@@ -47,7 +47,9 @@ async function handleAuthRoute(req, res, requestUrl, context) {
     }
 
     if (req.method === 'PUT') {
-      const body = await context.readRequestBody(req);
+      const body = await readBodyOrBadRequest(req, res, context);
+      if (!body) return true;
+
       const updatedUser = await updateUserProfile(sessionUser.username, body);
 
       if (!updatedUser) {
@@ -102,7 +104,9 @@ async function handleAuthRoute(req, res, requestUrl, context) {
 }
 
 async function register(req, res, context) {
-  const body = await context.readRequestBody(req);
+  const body = await readBodyOrBadRequest(req, res, context);
+  if (!body) return;
+
   const username = normalizeUsername(body.username);
   const password = String(body.password || '').trim();
 
@@ -110,6 +114,15 @@ async function register(req, res, context) {
     context.sendJson(res, 400, {
       ok: false,
       message: 'Username va password la bat buoc'
+    });
+    return;
+  }
+
+  const passwordError = validatePassword(password);
+  if (passwordError) {
+    context.sendJson(res, 400, {
+      ok: false,
+      message: passwordError
     });
     return;
   }
@@ -136,7 +149,9 @@ async function register(req, res, context) {
 }
 
 async function login(req, res, context) {
-  const body = await context.readRequestBody(req);
+  const body = await readBodyOrBadRequest(req, res, context);
+  if (!body) return;
+
   const username = normalizeUsername(body.username);
   const password = String(body.password || '').trim();
   const user = await getUserByUsername(username);
@@ -178,9 +193,6 @@ function sendMethodNotAllowed(res, context) {
 
 function normalizeAuthPath(pathname) {
   const routes = {
-    '/register': 'register',
-    '/login': 'login',
-    '/logout': 'logout',
     '/api/auth/register': 'register',
     '/api/auth/login': 'login',
     '/api/auth/logout': 'logout',
@@ -188,6 +200,25 @@ function normalizeAuthPath(pathname) {
   };
 
   return routes[pathname] || null;
+}
+
+async function readBodyOrBadRequest(req, res, context) {
+  try {
+    return await context.readRequestBody(req);
+  } catch (err) {
+    context.sendJson(res, 400, {
+      ok: false,
+      message: err.message || 'Body khong hop le'
+    });
+    return null;
+  }
+}
+
+function validatePassword(password) {
+  if (password.length < 8) return 'Mat khau phai co it nhat 8 ky tu';
+  if (!/[A-Z]/.test(password)) return 'Mat khau phai co it nhat 1 chu hoa';
+  if (!/[0-9]/.test(password)) return 'Mat khau phai co it nhat 1 so';
+  return null;
 }
 
 async function createUser(user) {

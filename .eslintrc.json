@@ -1,0 +1,24 @@
+{
+  "env": {
+    "browser": true,
+    "commonjs": true,
+    "es2022": true,
+    "node": true
+  },
+  "extends": "eslint:recommended",
+  "ignorePatterns": [
+    "node_modules/",
+    "backup.js",
+    "bootstrap-5.3.8-dist/",
+    "web/tailwind.css"
+  ],
+  "globals": {
+    "bootstrap": "readonly"
+  },
+  "rules": {
+    "no-console": "off",
+    "no-unused-vars": "warn",
+    "quotes": ["error", "single"],
+    "semi": ["error", "always"]
+  }
+}

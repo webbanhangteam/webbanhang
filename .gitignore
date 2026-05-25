@@ -1,4 +1,5 @@
 node_modules/
+bootstrap-5.3.8-dist/
 .env
 *.log
 npm-debug.log*
@@ -6,7 +7,7 @@ yarn-debug.log*
 yarn-error.log*
 .DS_Store
 backup.js
-./accesst/testscript.js
+web/assets/testscript.js
 CODEX_CLI_PROJECT_GUIDE.md
 Tài liệu xây dựng web.txt
 ZaloPay-APIs-Integration-Document.pdf
