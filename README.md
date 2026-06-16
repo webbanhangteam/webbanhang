@@ -23,6 +23,7 @@ Shop Anh Thuan la website ban hang chay bang Node.js, frontend tinh va MySQL. Du
 - Cap nhat ho so tai khoan: ho ten, so dien thoai va dia chi giao hang.
 - Danh sach san pham lay tu MySQL, co cache ngan han de giam query lap lai.
 - Gio hang ho tro san pham co size va san pham khong co size.
+- Gia sale theo tung san pham, duoc quan ly trong dashboard Admin va ap dung khi tao don.
 - Kiem tra ton kho theo size hoac `totalStock` truoc khi tao don.
 - Admin them, sua, xoa san pham bang token dang nhap.
 - Thanh toan MoMo, ZaloPay va COD.
@@ -291,7 +292,7 @@ orders
 order_items
 ```
 
-Bang `products` luu ten, danh muc, gia, anh, section, sizes, stock theo size va `total_stock` cho san pham khong co size.
+Bang `products` luu ten, danh muc, gia, phan tram sale, anh, section, sizes, stock theo size va `total_stock` cho san pham khong co size.
 
 Bang `orders` luu ma don, user, provider, status, amount, thong tin khach hang, payload cong thanh toan va co `stock_applied` de dam bao moi don chi tru ton kho mot lan.
 

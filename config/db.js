@@ -47,6 +47,7 @@ async function initDatabase() {
       category VARCHAR(60) NOT NULL,
       display_category VARCHAR(80) NOT NULL,
       price INT UNSIGNED NOT NULL,
+      sale_percent TINYINT UNSIGNED NOT NULL DEFAULT 0,
       image TEXT,
       section VARCHAR(40) NOT NULL DEFAULT 'products',
       sizes JSON NOT NULL,
@@ -112,6 +113,12 @@ async function initDatabase() {
     'products',
     'total_stock',
     'ALTER TABLE products ADD COLUMN total_stock INT UNSIGNED NULL AFTER stock'
+  );
+
+  await ensureColumnExists(
+    'products',
+    'sale_percent',
+    'ALTER TABLE products ADD COLUMN sale_percent TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER price'
   );
 
   await ensureIndexExists('products', 'idx_products_category', 'ALTER TABLE products ADD INDEX idx_products_category (category)');

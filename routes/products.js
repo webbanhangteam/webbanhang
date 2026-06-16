@@ -12,6 +12,7 @@ const defaultProducts = [
     category: 'shoes',
     displayCategory: 'Sneaker',
     price: 2890000,
+    salePercent: 15,
     image: 'https://images.unsplash.com/photo-1600269452121-4f2416e55c28?auto=format&fit=crop&w=900&q=84',
     section: 'new',
     sizes: [39, 40, 41, 42, 43],
@@ -23,6 +24,7 @@ const defaultProducts = [
     category: 'shoes',
     displayCategory: 'Sneaker',
     price: 3290000,
+    salePercent: 10,
     image: 'https://images.unsplash.com/photo-1608231387042-66d1773070a5?auto=format&fit=crop&w=900&q=84',
     section: 'new',
     sizes: [39, 40, 41, 42, 43],
@@ -34,6 +36,7 @@ const defaultProducts = [
     category: 'shoes',
     displayCategory: 'Sneaker',
     price: 3990000,
+    salePercent: 0,
     image: 'https://images.unsplash.com/photo-1552346154-21d32810aba3?auto=format&fit=crop&w=900&q=84',
     section: 'new',
     sizes: [39, 40, 41, 42, 43],
@@ -45,6 +48,7 @@ const defaultProducts = [
     category: 'shoes',
     displayCategory: 'Sneaker',
     price: 3450000,
+    salePercent: 0,
     image: 'https://images.unsplash.com/photo-1579338559194-a162d19bf842?auto=format&fit=crop&w=900&q=84',
     section: 'new',
     sizes: [38, 39, 40, 41, 42],
@@ -56,6 +60,7 @@ const defaultProducts = [
     category: 'clothing',
     displayCategory: 'Apparel',
     price: 790000,
+    salePercent: 20,
     image: './assets/image/England.jpg',
     section: 'products',
     sizes: ['S', 'M', 'L', 'XL'],
@@ -67,6 +72,7 @@ const defaultProducts = [
     category: 'accessory',
     displayCategory: 'Accessory',
     price: 450000,
+    salePercent: 0,
     image: 'https://images.unsplash.com/photo-1594223274512-ad4803739b7c?auto=format&fit=crop&w=900&q=84',
     section: 'products',
     sizes: [],
@@ -79,6 +85,7 @@ const defaultProducts = [
     category: 'accessory',
     displayCategory: 'Accessory',
     price: 320000,
+    salePercent: 0,
     image: 'https://images.unsplash.com/photo-1529958030586-3aae4ca485ff?auto=format&fit=crop&w=900&q=84',
     section: 'products',
     sizes: [],
@@ -91,6 +98,7 @@ const defaultProducts = [
     category: 'clothing',
     displayCategory: 'Apparel',
     price: 390000,
+    salePercent: 0,
     image: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=84',
     section: 'products',
     sizes: ['S', 'M', 'L', 'XL'],
@@ -287,6 +295,7 @@ function normalizeProduct(input, current, products) {
     sizes
   );
   const price = Number(input.price !== undefined ? input.price : base.price);
+  const salePercent = normalizeSalePercent(input.salePercent !== undefined ? input.salePercent : base.salePercent);
   const name = String(input.name !== undefined ? input.name : base.name || '').trim();
 
   if (!name) {
@@ -303,6 +312,7 @@ function normalizeProduct(input, current, products) {
     category,
     displayCategory: normalizeDisplayCategory(input.displayCategory || base.displayCategory, category),
     price,
+    salePercent,
     image: String(input.image !== undefined ? input.image : base.image || '').trim(),
     section: normalizeSection(input.section || base.section),
     sizes,
@@ -313,8 +323,8 @@ function normalizeProduct(input, current, products) {
 
 async function createProduct(product) {
   const [result] = await db.execute(
-    `INSERT INTO products (name, category, display_category, price, image, section, sizes, stock, total_stock)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO products (name, category, display_category, price, sale_percent, image, section, sizes, stock, total_stock)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     productToParams(product).slice(1)
   );
 
@@ -324,7 +334,7 @@ async function createProduct(product) {
 async function updateProduct(id, product) {
   await db.execute(
     `UPDATE products
-     SET name = ?, category = ?, display_category = ?, price = ?, image = ?, section = ?,
+     SET name = ?, category = ?, display_category = ?, price = ?, sale_percent = ?, image = ?, section = ?,
          sizes = ?, stock = ?, total_stock = ?
      WHERE id = ?`,
     [...productToParams(product).slice(1), Number(id)]
@@ -356,8 +366,8 @@ async function writeProducts(filePath, products) {
     const product = normalizeProduct(input, input.id ? { id: input.id } : null, products);
     await db.execute(
       `INSERT IGNORE INTO products
-       (id, name, category, display_category, price, image, section, sizes, stock, total_stock)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, name, category, display_category, price, sale_percent, image, section, sizes, stock, total_stock)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       productToParams(product)
     );
   }
@@ -372,6 +382,7 @@ function productToParams(product) {
     product.category,
     product.displayCategory,
     Number(product.price) || 0,
+    Number(product.salePercent) || 0,
     product.image,
     product.section,
     JSON.stringify(product.sizes || []),
@@ -389,6 +400,7 @@ function rowToProduct(row) {
     category: row.category,
     displayCategory: row.display_category,
     price: Number(row.price),
+    salePercent: Number(row.sale_percent) || 0,
     image: row.image || '',
     section: row.section,
     sizes: parseJson(row.sizes, []),
@@ -482,10 +494,17 @@ function normalizeTotalStock(value, sizes) {
   return Math.max(0, Math.trunc(totalStock));
 }
 
+function normalizeSalePercent(value) {
+  const salePercent = Number(value);
+  if (!Number.isFinite(salePercent)) return 0;
+  return Math.min(95, Math.max(0, Math.trunc(salePercent)));
+}
+
 module.exports = {
   ensureProductsDataFile,
   handleProductsRoute,
   readProducts,
   writeProducts,
-  getProductById
+  getProductById,
+  invalidateProductsCache
 };

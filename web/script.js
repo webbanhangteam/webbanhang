@@ -6,12 +6,14 @@ const currency = new Intl.NumberFormat('vi-VN', {
 const SESSION_KEY = 'shopSession';
 const CART_KEY = 'shopCart';
 const WISHLIST_KEY = 'shopWishlist';
+const CONTENT_URL = '/content.json';
 
 let products = [];
 let cart = loadJson(CART_KEY, []).map(normalizeCartItem).filter(Boolean);
 let currentUser = normalizeSession(loadJson(SESSION_KEY, null));
 let wishlist = new Set(loadJson(WISHLIST_KEY, []).map((id) => Number(id)).filter(Boolean));
 let currentDetailProductId = null;
+let siteContent = {};
 
 const cartCount = document.getElementById('cartCount');
 const cartItems = document.getElementById('cartItems');
@@ -41,10 +43,34 @@ const adminMessage = document.getElementById('adminMessage');
 const adminOrdersBody = document.getElementById('adminOrdersBody');
 const adminOrdersMessage = document.getElementById('adminOrdersMessage');
 const refreshAdminOrdersButton = document.getElementById('refreshAdminOrdersButton');
+const profileLoggedOut = document.getElementById('profileLoggedOut');
+const profileLoggedIn = document.getElementById('profileLoggedIn');
+const profileAvatarLetter = document.getElementById('profileAvatarLetter');
+const profileDisplayName = document.getElementById('profileDisplayName');
+const profileRoleBadge = document.getElementById('profileRoleBadge');
+const logoutButtonProfile = document.getElementById('logoutButtonProfile');
+const wishlistGrid = document.getElementById('wishlistGrid');
+const relatedProductsGrid = document.getElementById('relatedProductsGrid');
+const detailBreadcrumbName = document.getElementById('detailBreadcrumbName');
+const detailCategoryBadge = document.getElementById('detailCategoryBadge');
+const adminImagePreview = document.getElementById('adminImagePreview');
+const statProductCount = document.getElementById('statProductCount');
+const statOrderCount = document.getElementById('statOrderCount');
+const statRevenue = document.getElementById('statRevenue');
+const authModal = document.getElementById('authModal');
+const authFormTitle = document.getElementById('authFormTitle');
+const authFormSubtitle = document.getElementById('authFormSubtitle');
+const loginTabV2 = document.getElementById('loginTabV2');
+const registerTabV2 = document.getElementById('registerTabV2');
+const loginPaneV2 = document.getElementById('loginPaneV2');
+const registerPaneV2 = document.getElementById('registerPaneV2');
 
-init();
+loadSiteContent().finally(() => {
+    init();
+});
 
 async function init() {
+    applySiteContent();
     bindStaticEvents();
     renderProductSkeletons();
     await restoreSession();
@@ -58,6 +84,101 @@ async function init() {
     renderAdminProducts();
 }
 
+async function loadSiteContent() {
+    try {
+        const response = await fetch(CONTENT_URL, { cache: 'no-store' });
+        if (!response.ok) return;
+
+        const data = await response.json();
+        if (data && typeof data === 'object' && !Array.isArray(data)) {
+            siteContent = data;
+        }
+    } catch {
+        siteContent = {};
+    }
+}
+
+function applySiteContent() {
+    const title = contentText('meta.title', '');
+    if (title) document.title = title;
+
+    const description = contentText('meta.description', '');
+    const metaDescription = document.querySelector('meta[name="description"]');
+    if (description && metaDescription) {
+        metaDescription.setAttribute('content', description);
+    }
+
+    (siteContent.static || []).forEach(applyContentEntry);
+}
+
+function applyContentEntry(entry) {
+    if (!entry?.selector) return;
+
+    let elements = [];
+    try {
+        elements = document.querySelectorAll(entry.selector);
+    } catch (err) {
+        console.warn(`Invalid content selector "${entry.selector}":`, err);
+        return;
+    }
+
+    elements.forEach((element, index) => {
+        const text = indexedContentValue(entry.text, index);
+        if (text !== null) element.textContent = text;
+
+        const html = indexedContentValue(entry.html, index);
+        if (html !== null) element.innerHTML = html;
+
+        const textNode = indexedContentValue(entry.textNode, index);
+        if (textNode !== null) setFirstTextNode(element, textNode);
+
+        Object.entries(entry.attrs || {}).forEach(([attr, value]) => {
+            const attrValue = indexedContentValue(value, index);
+            if (attrValue !== null) element.setAttribute(attr, attrValue);
+        });
+    });
+}
+
+function indexedContentValue(value, index) {
+    if (Array.isArray(value)) {
+        return value[index] === undefined || value[index] === null ? null : String(value[index]);
+    }
+
+    return value === undefined || value === null ? null : String(value);
+}
+
+function setFirstTextNode(element, text) {
+    const textNode = Array.from(element.childNodes).find((node) => {
+        return node.nodeType === Node.TEXT_NODE && node.textContent.trim();
+    });
+
+    if (textNode) {
+        textNode.textContent = `\n                        ${text}\n                        `;
+        return;
+    }
+
+    element.insertBefore(document.createTextNode(text), element.firstChild);
+}
+
+function contentText(path, fallback = '') {
+    const value = path.split('.').reduce((current, key) => {
+        if (current && Object.prototype.hasOwnProperty.call(current, key)) {
+            return current[key];
+        }
+        return undefined;
+    }, siteContent);
+
+    if (value === undefined || value === null) return fallback;
+    if (typeof value === 'string' || typeof value === 'number') return String(value);
+    return fallback;
+}
+
+function contentTemplate(path, values, fallback = '') {
+    return contentText(path, fallback).replace(/\{(\w+)\}/g, (_, key) => {
+        return values[key] === undefined || values[key] === null ? '' : String(values[key]);
+    });
+}
+
 function bindStaticEvents() {
     document.addEventListener('click', handleDocumentClick);
 
@@ -65,10 +186,13 @@ function bindStaticEvents() {
         renderSearch(searchInput.value);
     });
 
-    document.getElementById('searchModal').addEventListener('shown.bs.modal', () => {
-        searchInput.focus();
-        renderSearch(searchInput.value);
-    });
+    const searchModal = document.getElementById('searchModal');
+    if (searchModal) {
+        searchModal.addEventListener('shown.bs.modal', () => {
+            searchInput.focus();
+            renderSearch(searchInput.value);
+        });
+    }
 
     document.getElementById('momoCheckout').addEventListener('click', () => {
         startPayment('momo');
@@ -82,21 +206,27 @@ function bindStaticEvents() {
         startCodCheckout();
     });
 
-    document.getElementById('loginForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        await submitAuth('/api/auth/login', {
-            username: document.getElementById('loginUsername').value,
-            password: document.getElementById('loginPassword').value
-        }, document.getElementById('loginMessage'));
-    });
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        loginForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            await submitAuth('/api/auth/login', {
+                username: document.getElementById('loginUsername').value,
+                password: document.getElementById('loginPassword').value
+            }, document.getElementById('loginMessage'));
+        });
+    }
 
-    document.getElementById('registerForm').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        await submitAuth('/api/auth/register', {
-            username: document.getElementById('registerUsername').value,
-            password: document.getElementById('registerPassword').value
-        }, document.getElementById('registerMessage'));
-    });
+    const registerForm = document.getElementById('registerForm');
+    if (registerForm) {
+        registerForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            await submitAuth('/api/auth/register', {
+                username: document.getElementById('registerUsername').value,
+                password: document.getElementById('registerPassword').value
+            }, document.getElementById('registerMessage'));
+        });
+    }
 
     openAuthButton.addEventListener('click', showAuthModal);
 
@@ -111,21 +241,57 @@ function bindStaticEvents() {
         await logout();
     });
 
-    profileForm.addEventListener('submit', submitProfile);
+    if (logoutButtonProfile) {
+        logoutButtonProfile.addEventListener('click', async () => {
+            await logout();
+        });
+    }
 
-    refreshOrdersButton.addEventListener('click', () => {
-        loadOrderHistory();
+    if (profileForm) {
+        profileForm.addEventListener('submit', submitProfile);
+    }
+
+    if (refreshOrdersButton) {
+        refreshOrdersButton.addEventListener('click', () => {
+            loadOrderHistory();
+        });
+    }
+
+    if (refreshAdminOrdersButton) {
+        refreshAdminOrdersButton.addEventListener('click', () => {
+            loadAdminOrders();
+        });
+    }
+
+    if (adminProductForm) {
+        adminProductForm.addEventListener('submit', submitAdminProduct);
+    }
+
+    const cancelAdminEdit = document.getElementById('cancelAdminEdit');
+    if (cancelAdminEdit) {
+        cancelAdminEdit.addEventListener('click', () => {
+            resetAdminForm();
+        });
+    }
+
+    document.querySelectorAll('[data-profile-tab]').forEach((button) => {
+        button.addEventListener('click', () => switchProfileTab(button.dataset.profileTab));
     });
 
-    refreshAdminOrdersButton.addEventListener('click', () => {
-        loadAdminOrders();
+    document.querySelectorAll('[data-admin-tab]').forEach((button) => {
+        button.addEventListener('click', () => switchAdminTab(button.dataset.adminTab));
     });
 
-    adminProductForm.addEventListener('submit', submitAdminProduct);
-
-    document.getElementById('cancelAdminEdit').addEventListener('click', () => {
-        resetAdminForm();
+    document.querySelectorAll('[data-detail-tab]').forEach((button) => {
+        button.addEventListener('click', () => switchDetailTab(button.dataset.detailTab));
     });
+
+    const adminImage = document.getElementById('adminImage');
+    if (adminImage) {
+        adminImage.addEventListener('input', updateAdminImagePreview);
+    }
+
+    bindAuthModalEvents();
 }
 
 async function restoreSession() {
@@ -202,6 +368,12 @@ function handleDocumentClick(event) {
         return;
     }
 
+    const detailThumb = event.target.closest('.detail-gallery .thumbs img');
+    if (detailThumb) {
+        updateDetailMainImage(detailThumb);
+        return;
+    }
+
     const addButton = event.target.closest('.add-to-cart, .add-detail-cart');
     if (addButton) {
         addProductFromButton(addButton);
@@ -210,7 +382,8 @@ function handleDocumentClick(event) {
 
     const sizeButton = event.target.closest('.size-list button');
     if (sizeButton) {
-        document.querySelectorAll('.size-list button').forEach((button) => {
+        if (sizeButton.disabled) return;
+        sizeButton.closest('.size-list')?.querySelectorAll('button').forEach((button) => {
             button.classList.remove('selected');
         });
         sizeButton.classList.add('selected');
@@ -226,6 +399,12 @@ function handleDocumentClick(event) {
     const searchButton = event.target.closest('.search-result');
     if (searchButton) {
         scrollToProduct(searchButton.dataset.productId);
+        return;
+    }
+
+    const relatedButton = event.target.closest('.related-product-card');
+    if (relatedButton) {
+        scrollToProduct(relatedButton.dataset.productId);
         return;
     }
 
@@ -273,7 +452,7 @@ function syncCartWithProducts() {
                 name: product.name,
                 size,
                 quantity: Math.min(Number(item.quantity) || 1, stock),
-                price: Number(product.price) || 0
+                price: getProductSalePrice(product)
             };
         }
 
@@ -282,7 +461,7 @@ function syncCartWithProducts() {
             name: product.name,
             size: null,
             quantity: clampQuantity(product, Math.max(1, Number(item.quantity) || 1)),
-            price: Number(product.price) || 0
+            price: getProductSalePrice(product)
         };
     }).filter(Boolean);
 
@@ -308,12 +487,13 @@ function renderProducts() {
         secondaryProducts.classList.remove('product-loading');
         secondaryProducts.classList.add('row', 'g-4');
         secondaryProducts.innerHTML = products
-            .filter((product) => product.section !== 'new')
             .map((product) => renderProductCard(product, false))
             .join('');
     }
 
     applyActiveFilter();
+    renderWishlist();
+    renderAdminStats();
 }
 
 function renderProductSkeletons() {
@@ -339,20 +519,33 @@ function renderProductSkeletons() {
 function renderProductEmptyState() {
     [productGrid, secondaryProducts].filter(Boolean).forEach((container) => {
         container.classList.remove('product-loading');
-        container.innerHTML = '<p class="empty-cart">Chưa tải được danh sách sản phẩm.</p>';
+        container.innerHTML = `<p class="empty-cart">${escapeHtml(contentText('messages.products.empty', 'Chưa tải được danh sách sản phẩm.'))}</p>`;
     });
 }
 
 function renderProductCard(product, showWishlist) {
     const sizes = getProductSizes(product);
     const wished = wishlist.has(Number(product.id));
+    const salePercent = getProductSalePercent(product);
+    const basePrice = getProductBasePrice(product);
+    const salePrice = getProductSalePrice(product);
+    const outOfStock = isProductOutOfStock(product);
+    const addButtonText = outOfStock
+        ? contentText('buttons.soldOut', 'Hết hàng')
+        : contentText('buttons.addShort', 'Thêm');
+    const priceHtml = salePercent
+        ? `<div class="price-stack"><strong>${currency.format(salePrice)}</strong><del>${currency.format(basePrice)}</del></div>`
+        : `<strong>${currency.format(basePrice)}</strong>`;
+    const saleBadge = salePercent ? `<span class="sale-badge">-${salePercent}%</span>` : '';
+    const chooseSize = contentText('labels.chooseSize', 'Chọn size');
+    const soldOut = contentText('labels.soldOut', 'hết hàng');
     const sizeSelect = sizes.length ? `
-        <select class="product-size-select" data-size-for="${product.id}" aria-label="Chọn size ${escapeAttr(product.name)}">
-            <option value="">Chọn size</option>
+        <select class="product-size-select" data-size-for="${product.id}" aria-label="${escapeAttr(contentTemplate('labels.chooseSizeFor', { name: product.name }, 'Chọn size {name}'))}">
+            <option value="">${escapeHtml(chooseSize)}</option>
             ${sizes.map((size) => {
         const qty = Number(product.stock?.[String(size)] || 0);
         const disabled = qty <= 0 ? ' disabled' : '';
-        const label = qty <= 0 ? `${size} - hết hàng` : `${size} (${qty})`;
+        const label = qty <= 0 ? `${size} - ${soldOut}` : `${size} (${qty})`;
         return `<option value="${escapeAttr(size)}"${disabled}>${escapeHtml(label)}</option>`;
     }).join('')}
         </select>
@@ -361,19 +554,25 @@ function renderProductCard(product, showWishlist) {
     return `
         <article class="product-card-shell col-12 col-sm-6 col-lg-4 col-xl-3" data-product-id="${product.id}"
             data-name="${escapeAttr(product.name)}" data-category="${escapeAttr(product.displayCategory)}"
-            data-type="${escapeAttr(product.category)}" data-price="${Number(product.price) || 0}">
+            data-type="${escapeAttr(product.category)}" data-price="${salePrice}">
             <div class="product-card card h-full border-0 shadow-sm rounded-xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl">
-                ${showWishlist ? `<button class="wishlist-btn shadow-sm transition-all duration-300 hover:scale-105${wished ? ' active' : ''}" type="button" aria-label="Yêu thích" data-product-id="${product.id}"><i class="bi ${wished ? 'bi-heart-fill' : 'bi-heart'}"></i></button>` : ''}
+                ${saleBadge}
+                ${showWishlist ? `<button class="wishlist-btn shadow-sm transition-all duration-300 hover:scale-105${wished ? ' active' : ''}" type="button" aria-label="${escapeAttr(contentText('labels.wishlist', 'Yêu thích'))}" data-product-id="${product.id}"><i class="bi ${wished ? 'bi-heart-fill' : 'bi-heart'}"></i></button>` : ''}
                 <a class="product-media block overflow-hidden bg-gray-100" href="#product-detail">
                     <img class="w-full object-cover transition-transform duration-300" src="${escapeAttr(product.image)}" alt="${escapeAttr(product.name)}" loading="lazy">
+                    <span class="product-hover-detail">
+                        <strong>${escapeHtml(contentText('labels.productDetail', 'Chi tiết sản phẩm'))}</strong>
+                        <small>${escapeHtml(getProductDescription(product))}</small>
+                        <small>${escapeHtml(getStockSummary(product))}</small>
+                    </span>
                 </a>
                 <div class="product-info p-4">
                     <span class="text-xs font-extrabold uppercase text-rose-600">${escapeHtml(product.displayCategory)}</span>
                     <h3 class="text-base font-extrabold leading-snug">${escapeHtml(product.name)}</h3>
                     ${sizeSelect}
                     <div class="product-bottom">
-                        <strong>${currency.format(Number(product.price) || 0)}</strong>
-                        <button class="add-to-cart rounded-lg bg-neutral-950 px-4 py-2 text-xs font-extrabold uppercase text-white transition-all duration-300 hover:scale-105 hover:bg-rose-700" type="button" data-product-id="${product.id}">Thêm</button>
+                        ${priceHtml}
+                        <button class="add-to-cart rounded-lg bg-neutral-950 px-4 py-2 text-xs font-extrabold uppercase text-white transition-all duration-300 hover:scale-105 hover:bg-rose-700" type="button" data-product-id="${product.id}"${outOfStock ? ' disabled' : ''}>${escapeHtml(addButtonText)}</button>
                     </div>
                 </div>
             </div>
@@ -392,22 +591,33 @@ function renderProductDetail(productId = currentDetailProductId) {
     const sizeList = document.querySelector('.detail-card .size-list');
     const title = document.querySelector('.detail-card h2');
     const price = document.querySelector('.detail-price');
+    const desc = document.querySelector('.detail-desc');
     const gallery = document.querySelector('.detail-gallery');
+    const outOfStock = isProductOutOfStock(product);
 
     if (title) title.textContent = product.name;
-    if (price) price.textContent = currency.format(Number(product.price) || 0);
+    if (price) price.innerHTML = renderPrice(product);
+    if (desc) desc.textContent = getProductDescription(product);
+    if (detailBreadcrumbName) detailBreadcrumbName.textContent = product.name;
+    if (detailCategoryBadge) detailCategoryBadge.textContent = product.displayCategory || 'Best seller';
     if (gallery) renderDetailGallery(gallery, product);
+    renderDetailDescription(product);
+    renderRelatedProducts(product);
 
     if (detailCard) {
         detailCard.dataset.productId = product.id;
         detailCard.dataset.name = product.name;
-        detailCard.dataset.price = product.price;
+        detailCard.dataset.price = getProductSalePrice(product);
     }
 
     if (detailButton) {
         detailButton.dataset.productId = product.id;
         detailButton.dataset.name = product.name;
-        detailButton.dataset.price = product.price;
+        detailButton.dataset.price = getProductSalePrice(product);
+        detailButton.disabled = outOfStock;
+        detailButton.innerHTML = outOfStock
+            ? `<i class="bi bi-x-circle"></i> ${escapeHtml(contentText('buttons.soldOut', 'Hết hàng'))}`
+            : `<i class="bi bi-bag-plus"></i> ${escapeHtml(contentText('buttons.addToCart', 'Thêm vào giỏ'))}`;
     }
 
     if (sizeList) {
@@ -418,7 +628,8 @@ function renderProductDetail(productId = currentDetailProductId) {
         sizeList.innerHTML = sizes.map((size, index) => {
             const disabled = Number(product.stock?.[String(size)] || 0) <= 0 ? ' disabled' : '';
             const selected = index === firstAvailableIndex ? ' class="selected"' : '';
-            return `<button type="button" data-size="${escapeAttr(size)}"${selected}${disabled}>${escapeHtml(size)}</button>`;
+            const stockLabel = Number(product.stock?.[String(size)] || 0) <= 0 ? contentText('labels.soldOut', 'hết hàng') : `${Number(product.stock?.[String(size)] || 0)} còn`;
+            return `<button type="button" data-size="${escapeAttr(size)}"${selected}${disabled} title="${escapeAttr(stockLabel)}">${escapeHtml(size)}</button>`;
         }).join('');
     }
 }
@@ -431,9 +642,53 @@ function renderDetailGallery(gallery, product) {
         <img src="${escapeAttr(mainImage)}" alt="${escapeAttr(product.name)}" loading="lazy" decoding="async">
         <div class="thumbs">
             ${(thumbImages.length ? thumbImages : images).slice(0, 3).map((image, index) => {
-        return `<img src="${escapeAttr(image)}" alt="${escapeAttr(product.name)} ${index + 1}" loading="lazy" decoding="async">`;
+        return `<img src="${escapeAttr(image)}" alt="${escapeAttr(product.name)} ${index + 1}" loading="lazy" decoding="async"${index === 0 ? ' class="active"' : ''}>`;
     }).join('')}
         </div>
+    `;
+}
+
+function updateDetailMainImage(thumbnail) {
+    const gallery = thumbnail.closest('.detail-gallery');
+    const mainImage = gallery?.querySelector(':scope > img');
+    if (!mainImage) return;
+
+    mainImage.src = thumbnail.src;
+    mainImage.alt = thumbnail.alt || mainImage.alt;
+    gallery.querySelectorAll('.thumbs img').forEach((image) => image.classList.remove('active'));
+    thumbnail.classList.add('active');
+}
+
+function renderDetailDescription(product) {
+    const descriptionPane = document.getElementById('detailTabDescription');
+    if (!descriptionPane) return;
+
+    descriptionPane.innerHTML = `
+        <h3>${escapeHtml(contentText('labels.productDescriptionTitle', 'Mô tả sản phẩm'))}</h3>
+        <p>${escapeHtml(getProductDescription(product))}</p>
+        <p>${escapeHtml(getStockSummary(product))}</p>
+    `;
+}
+
+function renderRelatedProducts(product) {
+    if (!relatedProductsGrid) return;
+
+    const related = products
+        .filter((item) => Number(item.id) !== Number(product.id) && item.category === product.category)
+        .slice(0, 4);
+
+    relatedProductsGrid.innerHTML = related.length
+        ? related.map((item) => renderRelatedProductCard(item)).join('')
+        : `<p class="empty-cart">${escapeHtml(contentText('messages.products.noRelated', 'Chưa có sản phẩm liên quan.'))}</p>`;
+}
+
+function renderRelatedProductCard(product) {
+    return `
+        <button class="related-product-card" type="button" data-product-id="${product.id}">
+            <img src="${escapeAttr(product.image)}" alt="${escapeAttr(product.name)}" loading="lazy" decoding="async">
+            <span>${escapeHtml(product.name)}</span>
+            ${renderPrice(product)}
+        </button>
     `;
 }
 
@@ -471,6 +726,11 @@ function addProductFromButton(button) {
 
     if (!product) return;
 
+    if (isProductOutOfStock(product)) {
+        showToast(contentText('messages.cart.outOfStock', 'Sản phẩm tạm hết hàng'), 'error');
+        return;
+    }
+
     let size = '';
     if (requiresSize(product)) {
         if (button.classList.contains('add-detail-cart')) {
@@ -480,12 +740,12 @@ function addProductFromButton(button) {
         }
 
         if (!size) {
-            showToast('Vui lòng chọn size', 'error');
+            showToast(contentText('messages.cart.chooseSize', 'Vui lòng chọn size'), 'error');
             return;
         }
 
         if (Number(product.stock?.[String(size)] || 0) <= 0) {
-            showToast('Size này tạm hết hàng', 'error');
+            showToast(contentText('messages.cart.sizeSoldOut', 'Size này tạm hết hàng'), 'error');
             return;
         }
     }
@@ -501,7 +761,7 @@ function addToCart(product, size) {
     });
 
     if (!canAddQuantity(product, normalizedSize, item ? item.quantity : 0)) {
-        showToast('Số lượng vượt quá tồn kho', 'error');
+        showToast(contentText('messages.cart.quantityOverStock', 'Số lượng vượt quá tồn kho'), 'error');
         return;
     }
 
@@ -513,14 +773,14 @@ function addToCart(product, size) {
             name: product.name,
             size: normalizedSize || null,
             quantity: 1,
-            price: Number(product.price) || 0
+            price: getProductSalePrice(product)
         });
     }
 
     saveCart();
     renderCart();
     animateCartIcon();
-    showToast(`Đã thêm ${product.name} vào giỏ`, 'success');
+    showToast(contentTemplate('messages.cart.added', { name: product.name }, 'Đã thêm {name} vào giỏ'), 'success');
 }
 
 function changeCartQty(index, change) {
@@ -530,7 +790,7 @@ function changeCartQty(index, change) {
     const product = products.find((entry) => Number(entry.id) === Number(item.productId));
 
     if (change > 0 && product && !canAddQuantity(product, item.size || '', item.quantity)) {
-        showToast('Số lượng vượt quá tồn kho', 'error');
+        showToast(contentText('messages.cart.quantityOverStock', 'Số lượng vượt quá tồn kho'), 'error');
         return;
     }
 
@@ -559,6 +819,16 @@ function toggleWishlist(button) {
     }
 
     localStorage.setItem(WISHLIST_KEY, JSON.stringify(Array.from(wishlist)));
+    renderWishlist();
+}
+
+function renderWishlist() {
+    if (!wishlistGrid) return;
+
+    const wishedProducts = products.filter((product) => wishlist.has(Number(product.id)));
+    wishlistGrid.innerHTML = wishedProducts.length
+        ? wishedProducts.map((product) => renderRelatedProductCard(product)).join('')
+        : `<p class="empty-cart">${escapeHtml(contentText('messages.wishlist.empty', 'Chưa có sản phẩm yêu thích.'))}</p>`;
 }
 
 function animateCartIcon() {
@@ -604,21 +874,25 @@ function renderCart() {
     checkoutMessage.textContent = '';
 
     if (!cart.length) {
-        cartItems.innerHTML = '<p class="empty-cart">Chưa có sản phẩm trong giỏ.</p>';
+        cartItems.innerHTML = `<p class="empty-cart">${escapeHtml(contentText('messages.cart.empty', 'Chưa có sản phẩm trong giỏ.'))}</p>`;
         return;
     }
+
+    const sizeLabel = contentText('labels.size', 'Size');
+    const decreaseQty = contentText('labels.decreaseQty', 'Giảm số lượng');
+    const increaseQty = contentText('labels.increaseQty', 'Tăng số lượng');
 
     cartItems.innerHTML = cart.map((item, index) => `
         <div class="cart-line">
             <div>
                 <strong>${escapeHtml(item.name)}</strong>
-                ${item.size ? `<small>Size: ${escapeHtml(item.size)}</small>` : ''}
+                ${item.size ? `<small>${escapeHtml(sizeLabel)}: ${escapeHtml(item.size)}</small>` : ''}
                 <span>${currency.format(Number(item.price) || 0)}</span>
             </div>
             <div class="qty-controls">
-                <button type="button" data-qty="${index}" data-change="-1" aria-label="Giảm số lượng">-</button>
+                <button type="button" data-qty="${index}" data-change="-1" aria-label="${escapeAttr(decreaseQty)}">-</button>
                 <span>${Number(item.quantity) || 0}</span>
-                <button type="button" data-qty="${index}" data-change="1" aria-label="Tăng số lượng">+</button>
+                <button type="button" data-qty="${index}" data-change="1" aria-label="${escapeAttr(increaseQty)}">+</button>
             </div>
         </div>
     `).join('');
@@ -634,7 +908,7 @@ function renderSearch(query) {
     searchResults.innerHTML = matches.map((product) => `
         <button type="button" class="search-result" data-product-id="${product.id}">
             <span>${escapeHtml(product.name)}</span>
-            <strong>${currency.format(Number(product.price) || 0)}</strong>
+            ${renderPrice(product)}
         </button>
     `).join('');
 }
@@ -660,25 +934,25 @@ async function startPayment(provider) {
     }, 0);
 
     if (!amount) {
-        checkoutMessage.textContent = 'Vui lòng thêm sản phẩm trước khi thanh toán.';
+        checkoutMessage.textContent = contentText('messages.payment.needItems', 'Vui lòng thêm sản phẩm trước khi thanh toán.');
         return;
     }
 
     if (!currentUser?.token) {
-        checkoutMessage.textContent = 'Vui lòng đăng nhập trước khi thanh toán.';
+        checkoutMessage.textContent = contentText('messages.payment.needLogin', 'Vui lòng đăng nhập trước khi thanh toán.');
         showAuthModal();
         return;
     }
 
-    checkoutMessage.textContent = 'Đang tạo phiên thanh toán...';
+    checkoutMessage.textContent = contentText('messages.payment.creating', 'Đang tạo phiên thanh toán...');
 
     try {
         const response = await fetch(`/api/payments/${provider}`, {
             method: 'POST',
             headers: authHeaders(true),
             body: JSON.stringify({
-                orderInfo: 'Thanh toán đơn hàng Chill n Free',
-                description: 'Thanh toán đơn hàng Chill n Free',
+                orderInfo: contentText('messages.payment.orderInfo', 'Thanh toán đơn hàng Chill n Free'),
+                description: contentText('messages.payment.orderDescription', 'Thanh toán đơn hàng Chill n Free'),
                 items: getCheckoutItems()
             })
         });
@@ -690,9 +964,9 @@ async function startPayment(provider) {
             return;
         }
 
-        checkoutMessage.textContent = data.message || 'Chưa tạo được liên kết thanh toán.';
+        checkoutMessage.textContent = data.message || contentText('messages.payment.linkFailed', 'Chưa tạo được liên kết thanh toán.');
     } catch {
-        checkoutMessage.textContent = 'Không kết nối được cổng thanh toán.';
+        checkoutMessage.textContent = contentText('messages.payment.gatewayDisconnected', 'Không kết nối được cổng thanh toán.');
     }
 }
 
@@ -702,45 +976,49 @@ async function startCodCheckout() {
     }, 0);
 
     if (!amount) {
-        checkoutMessage.textContent = 'Vui lòng thêm sản phẩm trước khi đặt COD.';
+        checkoutMessage.textContent = contentText('messages.cod.needItems', 'Vui lòng thêm sản phẩm trước khi đặt COD.');
         return;
     }
 
     if (!currentUser?.token) {
-        checkoutMessage.textContent = 'Vui lòng đăng nhập trước khi đặt COD.';
+        checkoutMessage.textContent = contentText('messages.cod.needLogin', 'Vui lòng đăng nhập trước khi đặt COD.');
         showAuthModal();
         return;
     }
 
     if (!hasCompleteProfile(currentUser)) {
-        checkoutMessage.textContent = 'Vui lòng cập nhật tên, số điện thoại và địa chỉ ở tài khoản.';
+        checkoutMessage.textContent = contentText('messages.cod.profileMissing', 'Vui lòng cập nhật tên, số điện thoại và địa chỉ ở tài khoản.');
         location.hash = 'account';
         profileFullName.focus();
         return;
     }
 
-    checkoutMessage.textContent = 'Đang tạo đơn COD...';
+    checkoutMessage.textContent = contentText('messages.cod.creating', 'Đang tạo đơn COD...');
 
     try {
         const response = await fetch('/api/payments/cod', {
             method: 'POST',
             headers: authHeaders(true),
             body: JSON.stringify({
-                description: 'Thanh toán khi nhận hàng',
+                description: contentText('messages.cod.description', 'Thanh toán khi nhận hàng'),
                 items: getCheckoutItems()
             })
         });
         const data = await response.json();
 
         if (!response.ok) {
-            checkoutMessage.textContent = data.message || 'Không tạo được đơn COD.';
+            checkoutMessage.textContent = data.message || contentText('messages.cod.createFailed', 'Không tạo được đơn COD.');
             return;
         }
 
         cart = [];
         saveCart();
         renderCart();
-        await loadProducts();
+        if (Array.isArray(data.products)) {
+            products = data.products;
+        } else {
+            await loadProducts();
+        }
         syncCartWithProducts();
         renderProducts();
         renderProductDetail();
@@ -749,9 +1027,9 @@ async function startCodCheckout() {
         if (currentUser.role === 'Admin') {
             await loadAdminOrders();
         }
-        checkoutMessage.textContent = `Đã tạo đơn COD ${data.orderId}.`;
+        checkoutMessage.textContent = contentTemplate('messages.cod.created', { orderId: data.orderId }, 'Đã tạo đơn COD {orderId}.');
     } catch {
-        checkoutMessage.textContent = 'Không kết nối được server.';
+        checkoutMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
     }
 }
 
@@ -766,7 +1044,7 @@ function getCheckoutItems() {
 }
 
 async function submitAuth(url, payload, messageElement) {
-    messageElement.textContent = 'Đang xử lý...';
+    messageElement.textContent = contentText('messages.auth.processing', 'Đang xử lý...');
 
     try {
         const response = await fetch(url, {
@@ -779,12 +1057,12 @@ async function submitAuth(url, payload, messageElement) {
         const data = await response.json();
 
         if (!response.ok) {
-            messageElement.textContent = data.message || 'Không xử lý được yêu cầu.';
+            messageElement.textContent = data.message || contentText('messages.auth.requestFailed', 'Không xử lý được yêu cầu.');
             return;
         }
 
         if (!data.token) {
-            messageElement.textContent = 'Phien dang nhap khong hop le.';
+            messageElement.textContent = contentText('messages.auth.invalidSession', 'Phiên đăng nhập không hợp lệ.');
             return;
         }
 
@@ -799,26 +1077,103 @@ async function submitAuth(url, payload, messageElement) {
             expiresAt: data.expiresAt || null
         };
         localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-        messageElement.textContent = 'Đăng nhập thành công.';
+        messageElement.textContent = contentText('messages.auth.success', 'Đăng nhập thành công.');
         updateAccountUi();
 
         const modal = bootstrap.Modal.getInstance(document.getElementById('authModal'));
         if (modal) modal.hide();
     } catch {
-        messageElement.textContent = 'Không kết nối được server.';
+        messageElement.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
     }
 }
 
 function showAuthModal() {
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('authModal')).show();
+    setAuthMode('login');
+    bootstrap.Modal.getOrCreateInstance(authModal).show();
+}
+
+function bindAuthModalEvents() {
+    if (loginTabV2) {
+        loginTabV2.addEventListener('click', () => setAuthMode('login'));
+    }
+
+    if (registerTabV2) {
+        registerTabV2.addEventListener('click', () => setAuthMode('register'));
+    }
+
+    document.querySelectorAll('.auth-pane .password-toggle').forEach((button) => {
+        button.addEventListener('click', () => {
+            const input = button.closest('.auth-input-group')?.querySelector('input[type="password"], input[type="text"]');
+            if (!input) return;
+
+            const isHidden = input.type === 'password';
+            input.type = isHidden ? 'text' : 'password';
+            button.setAttribute('aria-label', isHidden ? 'Ẩn mật khẩu' : 'Hiện mật khẩu');
+            const icon = button.querySelector('i');
+            if (icon) {
+                icon.className = isHidden ? 'bi bi-eye-slash' : 'bi bi-eye';
+            }
+        });
+    });
+
+    if (authModal) {
+        authModal.addEventListener('shown.bs.modal', () => {
+            setAuthMode('login');
+            document.getElementById('loginUsername')?.focus();
+        });
+
+        authModal.addEventListener('hidden.bs.modal', () => {
+            setAuthMode('login');
+            clearAuthMessages();
+        });
+    }
+}
+
+function setAuthMode(mode) {
+    const isRegister = mode === 'register';
+    if (loginTabV2) loginTabV2.classList.toggle('active', !isRegister);
+    if (registerTabV2) registerTabV2.classList.toggle('active', isRegister);
+    if (loginPaneV2) loginPaneV2.classList.toggle('active', !isRegister);
+    if (registerPaneV2) registerPaneV2.classList.toggle('active', isRegister);
+    if (authFormTitle) authFormTitle.textContent = isRegister ? 'Đăng ký' : 'Đăng nhập';
+    if (authFormSubtitle) {
+        authFormSubtitle.textContent = isRegister
+            ? 'Tạo tài khoản để lưu đơn hàng và đồng bộ thông tin'
+            : 'Nhập thông tin tài khoản của bạn';
+    }
+    clearAuthMessages();
+}
+
+function clearAuthMessages() {
+    const loginMessage = document.getElementById('loginMessage');
+    const registerMessage = document.getElementById('registerMessage');
+    if (loginMessage) loginMessage.textContent = '';
+    if (registerMessage) registerMessage.textContent = '';
+}
+
+function switchProfileTab(tab) {
+    const normalizedTab = tab || 'info';
+    document.querySelectorAll('[data-profile-tab]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.profileTab === normalizedTab);
+    });
+
+    ['info', 'orders', 'wishlist'].forEach((name) => {
+        const panel = document.getElementById(`profileTab${capitalize(name)}`);
+        if (panel) panel.classList.toggle('hidden', name !== normalizedTab);
+    });
+
+    if (normalizedTab === 'orders') loadOrderHistory();
+    if (normalizedTab === 'wishlist') renderWishlist();
 }
 
 function updateAccountUi() {
     if (!currentUser?.token) {
-        accountStatus.textContent = 'Chưa đăng nhập';
+        accountStatus.textContent = contentText('messages.account.loggedOut', 'Chưa đăng nhập');
         openAuthButton.hidden = false;
         logoutButton.hidden = true;
-        profileForm.hidden = true;
+        if (profileLoggedOut) profileLoggedOut.hidden = false;
+        if (profileLoggedIn) profileLoggedIn.hidden = true;
+        if (profileForm) profileForm.hidden = false;
         profileMessage.textContent = '';
         orderHistoryPanel.hidden = true;
         orderHistoryList.innerHTML = '';
@@ -832,22 +1187,86 @@ function updateAccountUi() {
     accountStatus.textContent = `${currentUser.username} - ${currentUser.role}`;
     openAuthButton.hidden = true;
     logoutButton.hidden = false;
-    profileForm.hidden = false;
+    if (profileLoggedOut) profileLoggedOut.hidden = true;
+    if (profileLoggedIn) profileLoggedIn.hidden = false;
+    if (profileForm) profileForm.hidden = false;
     profileFullName.value = currentUser.fullName || '';
     profilePhone.value = currentUser.phone || '';
     profileAddress.value = currentUser.address || '';
+    updateProfileSummary();
+    switchProfileTab('info');
     orderHistoryPanel.hidden = false;
     loadOrderHistory();
     adminPanel.hidden = currentUser.role !== 'Admin';
     if (currentUser.role === 'Admin') {
+        renderAdminStats();
         loadAdminOrders();
     }
+}
+
+function updateProfileSummary() {
+    const displayName = currentUser?.fullName || currentUser?.username || '';
+    if (profileDisplayName) profileDisplayName.textContent = displayName || 'User';
+    if (profileAvatarLetter) profileAvatarLetter.textContent = (displayName || 'U').trim().charAt(0).toUpperCase();
+    if (profileRoleBadge) {
+        profileRoleBadge.classList.toggle('admin', currentUser?.role === 'Admin');
+        profileRoleBadge.classList.toggle('user', currentUser?.role !== 'Admin');
+        profileRoleBadge.innerHTML = `<i class="bi ${currentUser?.role === 'Admin' ? 'bi-shield-check' : 'bi-person-fill'}"></i> ${escapeHtml(currentUser?.role || 'User')}`;
+    }
+}
+
+function switchAdminTab(tab) {
+    const normalizedTab = tab || 'products';
+    document.querySelectorAll('[data-admin-tab]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.adminTab === normalizedTab);
+    });
+
+    document.querySelectorAll('.admin-tab-content').forEach((panel) => {
+        panel.classList.toggle('active', panel.id === `adminTab${capitalize(normalizedTab)}`);
+    });
+
+    if (normalizedTab === 'orders') loadAdminOrders();
+}
+
+function switchDetailTab(tab) {
+    const normalizedTab = tab || 'description';
+    document.querySelectorAll('[data-detail-tab]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.detailTab === normalizedTab);
+    });
+
+    document.querySelectorAll('.detail-tab-pane').forEach((panel) => {
+        panel.classList.toggle('active', panel.id === `detailTab${capitalize(normalizedTab)}`);
+    });
+}
+
+function renderAdminStats(orders = null) {
+    if (statProductCount) statProductCount.textContent = products.length;
+
+    if (!orders) return;
+
+    const revenue = orders.reduce((sum, order) => sum + (Number(order.amount) || 0), 0);
+    if (statOrderCount) statOrderCount.textContent = orders.length;
+    if (statRevenue) statRevenue.textContent = currency.format(revenue);
+}
+
+function updateAdminImagePreview() {
+    if (!adminImagePreview) return;
+    const image = document.getElementById('adminImage').value.trim();
+
+    adminImagePreview.innerHTML = image
+        ? `<img src="${escapeAttr(image)}" alt="${escapeAttr(contentText('labels.imagePreview', 'Xem trước ảnh'))}" loading="lazy" decoding="async">`
+        : `
+            <div class="placeholder-icon">
+                <i class="bi bi-image"></i>
+                <small>${escapeHtml(contentText('labels.imagePreview', 'Xem trước ảnh'))}</small>
+            </div>
+        `;
 }
 
 async function loadOrderHistory() {
     if (!currentUser?.token) return;
 
-    orderHistoryMessage.textContent = 'Đang tải đơn hàng...';
+    orderHistoryMessage.textContent = contentText('messages.orders.loading', 'Đang tải đơn hàng...');
 
     try {
         const response = await fetch('/api/orders/me', {
@@ -856,19 +1275,19 @@ async function loadOrderHistory() {
         const data = await response.json();
 
         if (!response.ok) {
-            orderHistoryMessage.textContent = data.message || 'Không tải được lịch sử đơn hàng.';
+            orderHistoryMessage.textContent = data.message || contentText('messages.orders.loadFailed', 'Không tải được lịch sử đơn hàng.');
             return;
         }
 
         renderOrderHistory(Array.isArray(data.orders) ? data.orders : []);
     } catch {
-        orderHistoryMessage.textContent = 'Không kết nối được server.';
+        orderHistoryMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
     }
 }
 
 function renderOrderHistory(orders) {
     if (!orders.length) {
-        orderHistoryList.innerHTML = '<p class="empty-cart">Chưa có đơn hàng.</p>';
+        orderHistoryList.innerHTML = `<p class="empty-cart">${escapeHtml(contentText('messages.orders.empty', 'Chưa có đơn hàng.'))}</p>`;
         orderHistoryMessage.textContent = '';
         return;
     }
@@ -892,7 +1311,7 @@ function renderOrderHistory(orders) {
                 </header>
                 <ul>${itemRows}</ul>
                 <footer>
-                    <span>${items.length} mặt hàng</span>
+                    <span>${escapeHtml(contentTemplate('labels.itemCount', { count: items.length }, '{count} mặt hàng'))}</span>
                     <strong>${currency.format(Number(order.amount) || 0)}</strong>
                 </footer>
             </article>
@@ -904,7 +1323,7 @@ function renderOrderHistory(orders) {
 async function loadAdminOrders() {
     if (!currentUser?.token || currentUser.role !== 'Admin') return;
 
-    adminOrdersMessage.textContent = 'Đang tải đơn hàng...';
+    adminOrdersMessage.textContent = contentText('messages.orders.loading', 'Đang tải đơn hàng...');
 
     try {
         const response = await fetch('/api/orders', {
@@ -913,13 +1332,15 @@ async function loadAdminOrders() {
         const data = await response.json();
 
         if (!response.ok) {
-            adminOrdersMessage.textContent = data.message || 'Không tải được lịch sử bán hàng.';
+            adminOrdersMessage.textContent = data.message || contentText('messages.adminOrders.loadFailed', 'Không tải được lịch sử bán hàng.');
             return;
         }
 
-        renderAdminOrders(Array.isArray(data.orders) ? data.orders : []);
+        const orders = Array.isArray(data.orders) ? data.orders : [];
+        renderAdminOrders(orders);
+        renderAdminStats(orders);
     } catch {
-        adminOrdersMessage.textContent = 'Không kết nối được server.';
+        adminOrdersMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
     }
 }
 
@@ -929,7 +1350,7 @@ function renderAdminOrders(orders) {
     if (!orders.length) {
         adminOrdersBody.innerHTML = `
             <tr>
-                <td colspan="4">Chưa có đơn hàng.</td>
+                <td colspan="4">${escapeHtml(contentText('messages.orders.empty', 'Chưa có đơn hàng.'))}</td>
             </tr>
         `;
         adminOrdersMessage.textContent = '';
@@ -938,7 +1359,7 @@ function renderAdminOrders(orders) {
 
     adminOrdersBody.innerHTML = orders.map((order) => {
         const customer = order.customer || {};
-        const customerName = customer.fullName || customer.username || 'Khách hàng';
+        const customerName = customer.fullName || customer.username || contentText('labels.customer', 'Khách hàng');
         const customerDetails = [
             customer.username ? `@${customer.username}` : '',
             customer.phone || '',
@@ -979,12 +1400,12 @@ async function submitProfile(event) {
     event.preventDefault();
 
     if (!currentUser?.token) {
-        profileMessage.textContent = 'Vui lòng đăng nhập.';
+        profileMessage.textContent = contentText('messages.profile.needLogin', 'Vui lòng đăng nhập.');
         showAuthModal();
         return;
     }
 
-    profileMessage.textContent = 'Đang lưu thông tin...';
+    profileMessage.textContent = contentText('messages.profile.saving', 'Đang lưu thông tin...');
 
     try {
         const response = await fetch('/api/auth/me', {
@@ -999,7 +1420,7 @@ async function submitProfile(event) {
         const data = await response.json();
 
         if (!response.ok) {
-            profileMessage.textContent = data.message || 'Không lưu được thông tin.';
+            profileMessage.textContent = data.message || contentText('messages.profile.saveFailed', 'Không lưu được thông tin.');
             return;
         }
 
@@ -1011,9 +1432,9 @@ async function submitProfile(event) {
         };
         localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
         updateAccountUi();
-        profileMessage.textContent = 'Đã lưu thông tin tài khoản.';
+        profileMessage.textContent = contentText('messages.profile.saved', 'Đã lưu thông tin tài khoản.');
     } catch {
-        profileMessage.textContent = 'Không kết nối được server.';
+        profileMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
     }
 }
 
@@ -1021,7 +1442,7 @@ async function submitAdminProduct(event) {
     event.preventDefault();
 
     if (!currentUser?.token || currentUser.role !== 'Admin') {
-        adminMessage.textContent = 'Bạn cần đăng nhập Admin.';
+        adminMessage.textContent = contentText('messages.admin.needAdmin', 'Bạn cần đăng nhập Admin.');
         return;
     }
 
@@ -1034,6 +1455,7 @@ async function submitAdminProduct(event) {
         category,
         displayCategory: displayCategoryFromType(category),
         price: Number(document.getElementById('adminPrice').value),
+        salePercent: Number(document.getElementById('adminSalePercent').value) || 0,
         image: document.getElementById('adminImage').value,
         sizes,
         stock: parseStock(stockInput),
@@ -1043,7 +1465,7 @@ async function submitAdminProduct(event) {
 
     const url = id ? `/api/products/${id}` : '/api/products';
     const method = id ? 'PUT' : 'POST';
-    adminMessage.textContent = 'Đang lưu...';
+    adminMessage.textContent = contentText('messages.admin.saving', 'Đang lưu...');
 
     try {
         const response = await fetch(url, {
@@ -1054,38 +1476,45 @@ async function submitAdminProduct(event) {
         const data = await response.json();
 
         if (!response.ok) {
-            adminMessage.textContent = data.message || 'Không lưu được sản phẩm.';
+            adminMessage.textContent = data.message || contentText('messages.admin.saveFailed', 'Không lưu được sản phẩm.');
             return;
         }
 
         products = data.products || products;
+        syncCartWithProducts();
         renderProducts();
         renderProductDetail();
         renderSearch(searchInput.value);
+        renderCart();
         renderAdminProducts();
         resetAdminForm();
-        adminMessage.textContent = 'Đã lưu sản phẩm.';
+        adminMessage.textContent = contentText('messages.admin.saved', 'Đã lưu sản phẩm.');
     } catch {
-        adminMessage.textContent = 'Không kết nối được server.';
+        adminMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
     }
 }
 
 function renderAdminProducts() {
     if (!adminProductsBody) return;
+    const newSectionLabel = contentText('labels.sections.newProducts', 'Sản phẩm mới');
+    const allSectionLabel = contentText('labels.sections.allProducts', 'Tất cả sản phẩm');
+    const editLabel = contentText('buttons.edit', 'Sửa');
+    const deleteLabel = contentText('buttons.delete', 'Xóa');
 
     adminProductsBody.innerHTML = products.map((product) => `
         <tr>
             <td>
                 <strong>${escapeHtml(product.name)}</strong>
-                <small>${escapeHtml(product.section === 'new' ? 'Sản phẩm mới' : 'Tất cả sản phẩm')}</small>
+                <small>${escapeHtml(product.section === 'new' ? newSectionLabel : allSectionLabel)}</small>
             </td>
             <td>${escapeHtml(product.displayCategory)}</td>
-            <td>${currency.format(Number(product.price) || 0)}</td>
+            <td>${renderPrice(product)}</td>
+            <td><span class="sale-pill">${getProductSalePercent(product)}%</span></td>
             <td>${escapeHtml(formatStock(product))}</td>
             <td>
                 <div class="admin-row-actions">
-                    <button type="button" data-admin-edit="${product.id}">Sửa</button>
-                    <button type="button" data-admin-delete="${product.id}">Xóa</button>
+                    <button type="button" data-admin-edit="${product.id}">${escapeHtml(editLabel)}</button>
+                    <button type="button" data-admin-delete="${product.id}">${escapeHtml(deleteLabel)}</button>
                 </div>
             </td>
         </tr>
@@ -1100,17 +1529,19 @@ function fillAdminForm(productId) {
     document.getElementById('adminName').value = product.name;
     document.getElementById('adminCategory').value = product.category;
     document.getElementById('adminPrice').value = product.price;
+    document.getElementById('adminSalePercent').value = getProductSalePercent(product);
     document.getElementById('adminImage').value = product.image;
     document.getElementById('adminSizes').value = getProductSizes(product).join(',');
     document.getElementById('adminStock').value = formatStock(product);
     document.getElementById('adminSection').value = product.section || 'products';
-    adminMessage.textContent = 'Đang sửa sản phẩm.';
+    adminMessage.textContent = contentText('messages.admin.editing', 'Đang sửa sản phẩm.');
+    updateAdminImagePreview();
     adminPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function deleteAdminProduct(productId) {
     if (!currentUser?.token || currentUser.role !== 'Admin') return;
-    if (!confirm('Xóa sản phẩm này?')) return;
+    if (!confirm(contentText('messages.admin.deleteConfirm', 'Xóa sản phẩm này?'))) return;
 
     try {
         const response = await fetch(`/api/products/${productId}`, {
@@ -1120,7 +1551,7 @@ async function deleteAdminProduct(productId) {
         const data = await response.json();
 
         if (!response.ok) {
-            adminMessage.textContent = data.message || 'Không xóa được sản phẩm.';
+            adminMessage.textContent = data.message || contentText('messages.admin.deleteFailed', 'Không xóa được sản phẩm.');
             return;
         }
 
@@ -1132,15 +1563,16 @@ async function deleteAdminProduct(productId) {
         renderSearch(searchInput.value);
         renderCart();
         renderAdminProducts();
-        adminMessage.textContent = 'Đã xóa sản phẩm.';
+        adminMessage.textContent = contentText('messages.admin.deleted', 'Đã xóa sản phẩm.');
     } catch {
-        adminMessage.textContent = 'Không kết nối được server.';
+        adminMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
     }
 }
 
 function resetAdminForm() {
     adminProductForm.reset();
     document.getElementById('adminProductId').value = '';
+    updateAdminImagePreview();
 }
 
 function authHeaders(includeJson = true) {
@@ -1168,7 +1600,7 @@ function productFromCard(card, button) {
 
     return {
         id: Number(button?.dataset.productId || card?.dataset.productId || Date.now()),
-        name: button?.dataset.name || card?.dataset.name || 'Sản phẩm',
+        name: button?.dataset.name || card?.dataset.name || contentText('labels.productFallback', 'Sản phẩm'),
         category: card?.dataset.type || productTypeFromDisplay(card?.dataset.category || ''),
         displayCategory: card?.dataset.category || 'Accessory',
         price: Number(button?.dataset.price || card?.dataset.price || 0),
@@ -1205,6 +1637,40 @@ function getProductTotalStock(product) {
     return Number.isFinite(totalStock) ? Math.max(0, totalStock) : null;
 }
 
+function getProductBasePrice(product) {
+    return Math.max(0, Number(product?.price) || 0);
+}
+
+function getProductSalePercent(product) {
+    const salePercent = Number(product?.salePercent) || 0;
+    if (!Number.isFinite(salePercent)) return 0;
+    return Math.min(95, Math.max(0, Math.trunc(salePercent)));
+}
+
+function getProductSalePrice(product) {
+    const basePrice = getProductBasePrice(product);
+    const salePercent = getProductSalePercent(product);
+    if (!salePercent) return basePrice;
+    return Math.max(0, Math.round(basePrice * (100 - salePercent) / 100));
+}
+
+function renderPrice(product) {
+    const salePercent = getProductSalePercent(product);
+    const basePrice = getProductBasePrice(product);
+    const salePrice = getProductSalePrice(product);
+
+    if (!salePercent) {
+        return `<strong>${currency.format(basePrice)}</strong>`;
+    }
+
+    return `
+        <div class="price-stack">
+            <strong>${currency.format(salePrice)}</strong>
+            <del>${currency.format(basePrice)}</del>
+        </div>
+    `;
+}
+
 function clampQuantity(product, quantity) {
     const totalStock = getProductTotalStock(product);
     return totalStock === null ? quantity : Math.min(quantity, totalStock);
@@ -1221,6 +1687,46 @@ function productTypeFromDisplay(displayCategory) {
     if (normalized === 'sneaker') return 'shoes';
     if (normalized === 'apparel') return 'clothing';
     return 'accessory';
+}
+
+function getProductDescription(product) {
+    if (product?.description) return String(product.description);
+
+    const category = product?.displayCategory || 'sản phẩm';
+    const sizeInfo = getProductSizes(product).length
+        ? `Có các size ${getProductSizes(product).join(', ')}.`
+        : 'Phù hợp dùng hằng ngày, dễ phối với nhiều outfit.';
+
+    return `${product?.name || 'Sản phẩm'} thuộc nhóm ${category}, được kiểm tra tồn kho và tình trạng trước khi giao. ${sizeInfo}`;
+}
+
+function getStockSummary(product) {
+    if (requiresSize(product)) {
+        const available = getProductSizes(product)
+            .map((size) => `${size}: ${Number(product.stock?.[String(size)] || 0)}`)
+            .join(', ');
+        return available
+            ? `${contentText('labels.stock', 'Tồn kho')}: ${available}`
+            : contentText('messages.cart.sizeSoldOut', 'Size này tạm hết hàng');
+    }
+
+    const totalStock = getProductTotalStock(product);
+    if (totalStock === null) return contentText('labels.stockUnlimited', 'Không giới hạn');
+    return `${contentText('labels.stock', 'Tồn kho')}: ${totalStock}`;
+}
+
+function isProductOutOfStock(product) {
+    if (requiresSize(product)) {
+        return getProductSizes(product).every((size) => Number(product.stock?.[String(size)] || 0) <= 0);
+    }
+
+    const totalStock = getProductTotalStock(product);
+    return totalStock !== null && totalStock <= 0;
+}
+
+function capitalize(value) {
+    const text = String(value || '');
+    return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : '';
 }
 
 function splitList(value) {
@@ -1251,7 +1757,7 @@ function formatStock(product) {
     const sizes = getProductSizes(product);
     if (!sizes.length) {
         const totalStock = getProductTotalStock(product);
-        return totalStock === null ? 'Không giới hạn' : String(totalStock);
+        return totalStock === null ? contentText('labels.stockUnlimited', 'Không giới hạn') : String(totalStock);
     }
 
     return sizes.map((size) => {

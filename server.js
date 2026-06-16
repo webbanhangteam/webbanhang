@@ -6,7 +6,12 @@ const path = require('path');
 const crypto = require('crypto');
 const db = require('./config/db');
 const { ensureUserDataFile, handleAuthRoute, getUserByUsername } = require('./routes/auth');
-const { ensureProductsDataFile, handleProductsRoute, readProducts } = require('./routes/products');
+const {
+  ensureProductsDataFile,
+  handleProductsRoute,
+  readProducts,
+  invalidateProductsCache
+} = require('./routes/products');
 const { getRequestToken, isAdminRequest, sendForbidden } = require('./middleware/adminMiddleware');
 const { createRateLimiter } = require('./middleware/rateLimiter');
 
@@ -507,6 +512,7 @@ async function createCodOrder(req, res) {
     orderId,
     amount: order.amount,
     items: order.items,
+    products: await readProducts(),
     customer: savedOrder.user,
     message: 'Da tao don hang COD'
   });
@@ -544,7 +550,7 @@ function resolveStaticPath(pathname) {
     return safeResolve(webRoot, 'index.html');
   }
 
-  if (route === '/style.css' || route === '/tailwind.css' || route === '/script.js') {
+  if (route === '/style.css' || route === '/tailwind.css' || route === '/script.js' || route === '/content.json') {
     return safeResolve(webRoot, route.slice(1));
   }
 
@@ -927,7 +933,7 @@ async function createOrderFromCart(items) {
       }
     }
 
-    const unitPrice = Number(product.price) || 0;
+    const unitPrice = getProductSalePrice(product);
     if (!normalizeAmount(unitPrice)) {
       return {
         ok: false,
@@ -1001,6 +1007,14 @@ function getProductTotalStock(product) {
 
   const totalStock = Number(product.totalStock);
   return Number.isFinite(totalStock) ? Math.max(0, totalStock) : null;
+}
+
+function getProductSalePrice(product) {
+  const price = Number(product.price) || 0;
+  const rawSalePercent = Number(product.salePercent) || 0;
+  const salePercent = Math.min(95, Math.max(0, Math.trunc(rawSalePercent)));
+  if (!salePercent) return price;
+  return Math.max(0, Math.round(price * (100 - salePercent) / 100));
 }
 
 function hasDeliveryProfile(user) {
@@ -1215,6 +1229,7 @@ async function applyOrderStockByDbId(connection, orderDbId) {
     [orderDbId]
   );
 
+  invalidateProductsCache();
   return true;
 }
 
