@@ -1121,7 +1121,7 @@ a {
     color: white;
     background:
         linear-gradient(180deg, rgba(17, 17, 17, 0.88), rgba(17, 17, 17, 0.96)),
-        url('./assets/image/test.jpg') center/cover no-repeat;
+        url('../image/products/test.jpg') center/cover no-repeat;
 }
 
 .auth-brand-side .brand {

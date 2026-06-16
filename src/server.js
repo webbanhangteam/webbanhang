@@ -15,8 +15,8 @@ const {
 const { getRequestToken, isAdminRequest, sendForbidden } = require('./middleware/adminMiddleware');
 const { createRateLimiter } = require('./middleware/rateLimiter');
 
-const root = path.resolve(__dirname);
-const webRoot = path.join(root, 'web');
+const root = path.resolve(__dirname, '..');
+const webRoot = path.join(root, 'public');
 const assetsRoot = path.join(webRoot, 'assets');
 const bootstrapRoot = path.join(root, 'bootstrap-5.3.8-dist');
 const port = process.env.PORT || 3000;
@@ -550,10 +550,22 @@ function resolveStaticPath(pathname) {
     return safeResolve(webRoot, 'index.html');
   }
 
-  if (route === '/style.css' || route === '/tailwind.css' || route === '/script.js' || route === '/content.json') {
-    return safeResolve(webRoot, route.slice(1));
-  }
 
+    if (route === '/style.css' || route === '/tailwind.css' || route === '/script.js' || route === '/content.json') {
+      return safeResolve(webRoot, route.slice(1));
+    }
+
+    if (route.startsWith('/css/')) {
+      return safeResolve(webRoot, route.slice(1));
+    }
+
+    if (route.startsWith('/js/')) {
+      return safeResolve(webRoot, route.slice(1));
+    }
+
+    if (route.startsWith('/image/')) {
+      return safeResolve(webRoot, route.slice(1));
+    }
   if (route.startsWith('/assets/')) {
     return safeResolve(assetsRoot, route.slice('/assets/'.length));
   }

@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'shop-anh-thuan',
-      script: 'server.js',
+      script: 'src/server.js',
       env: {
         NODE_ENV: 'production',
         HOST: '0.0.0.0',
