@@ -19,11 +19,11 @@ File này tóm tắt các tính năng, cải tiến và hạng mục nâng cấp
 ## 2. Kiến Trúc Và Cấu Trúc Code
 
 ### Critical
-- Tách `server.js` đang quá lớn thành các module nhỏ hơn như routes, services, middleware, utils và config.
+- Tách `src/server.js` đang quá lớn thành các module nhỏ hơn như routes, services, middleware, utils và config.
 
 ### High
 - Xóa product cards hardcoded trong HTML, chỉ render sản phẩm từ API.
-- Chuẩn hóa thư mục asset, dùng `web/assets` thay cho tên thư mục sai.
+- Chuẩn hóa tài nguyên tĩnh trong `public/image`, `public/css` và `public/js`.
 
 ### Medium
 - Sắp xếp lại cấu trúc thư mục dự án theo module rõ ràng hơn.
@@ -109,9 +109,8 @@ File này tóm tắt các tính năng, cải tiến và hạng mục nâng cấp
 - Thêm ESLint và Prettier để chuẩn hóa code style.
 
 ### Medium
-- Kiểm tra và xử lý file `backup.js` nếu còn tồn tại.
 - Refactor các đoạn code trùng lặp như `escapeHtml`, `parseJson`, size/stock helpers.
-- Tách `web/script.js` thành các ES modules nhỏ hơn.
+- Tách `public/js/script.js` thành các ES modules nhỏ hơn.
 - Chuẩn hóa cách load Bootstrap.
 
 ### Low

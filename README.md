@@ -1,130 +1,143 @@
-# Shop Anh Thuan
+# Shop Anh Thuận
 
-Shop Anh Thuan la website ban hang chay bang Node.js, frontend tinh va MySQL. Du an gom trang mua hang, gio hang theo size, dang ky/dang nhap, ho so giao hang, quan tri san pham, lich su don hang va thanh toan qua MoMo, ZaloPay hoac COD.
+Website bán hàng sử dụng Node.js, MySQL và frontend tĩnh. Dự án hỗ trợ tài khoản người dùng, quản lý sản phẩm, giỏ hàng theo size, tồn kho, đơn hàng và thanh toán qua COD, MoMo hoặc ZaloPay.
 
-## Noi Dung
+## Tính năng
 
-- [Tinh nang chinh](#tinh-nang-chinh)
-- [Cong nghe su dung](#cong-nghe-su-dung)
-- [Cau truc du an](#cau-truc-du-an)
-- [Chay local](#chay-local)
-- [Bien moi truong](#bien-moi-truong)
-- [Lenh npm](#lenh-npm)
-- [API chinh](#api-chinh)
-- [Database](#database)
-- [Thanh toan](#thanh-toan)
-- [Docker](#docker)
-- [Trien khai](#trien-khai)
-- [Ghi chu phat trien](#ghi-chu-phat-trien)
+- Đăng ký, đăng nhập và đăng xuất bằng session token.
+- Cập nhật họ tên, số điện thoại và địa chỉ giao hàng.
+- Hiển thị sản phẩm từ MySQL, có cache trong 30 giây.
+- Sản phẩm có size hoặc tồn kho tổng (`totalStock`).
+- Giá khuyến mãi theo `salePercent`.
+- Admin có thể thêm, sửa và xóa sản phẩm.
+- Kiểm tra giá và tồn kho trực tiếp từ database khi tạo đơn.
+- Thanh toán COD, MoMo và ZaloPay.
+- Người dùng xem lịch sử mua hàng; admin xem toàn bộ đơn hàng.
+- Rate limit cho API đăng nhập và đăng ký.
+- CORS, security headers, `ETag` và cache cho tài nguyên tĩnh.
+- Health check kiểm tra cả ứng dụng và kết nối database.
+- Graceful shutdown khi nhận `SIGTERM` hoặc `SIGINT`.
 
-## Tinh Nang Chinh
+## Công nghệ
 
-- Dang ky, dang nhap, dang xuat bang session token.
-- Cap nhat ho so tai khoan: ho ten, so dien thoai va dia chi giao hang.
-- Danh sach san pham lay tu MySQL, co cache ngan han de giam query lap lai.
-- Gio hang ho tro san pham co size va san pham khong co size.
-- Gia sale theo tung san pham, duoc quan ly trong dashboard Admin va ap dung khi tao don.
-- Kiem tra ton kho theo size hoac `totalStock` truoc khi tao don.
-- Admin them, sua, xoa san pham bang token dang nhap.
-- Thanh toan MoMo, ZaloPay va COD.
-- COD tru ton kho ngay khi tao don thanh cong.
-- MoMo/ZaloPay tru ton kho khi IPN/callback xac nhan thanh toan thanh cong.
-- User xem lich su mua hang.
-- Admin xem lich su ban hang.
-- API co rate limiting cho login/register.
-- Response co security headers va CORS policy theo `ALLOWED_ORIGINS`.
-- Static assets co `Cache-Control` va `ETag`.
-- Health check endpoint kiem tra ca database.
-- Graceful shutdown cho `SIGTERM` va `SIGINT`.
-
-## Cong Nghe Su Dung
-
-- Node.js >= 18
-- Native `http` server
+- Node.js 18 trở lên
+- Native Node.js HTTP server
 - MySQL 8
 - `mysql2`
 - `dotenv`
-- Tailwind CSS CLI
+- Tailwind CSS 4
+- Bootstrap 5 qua CDN
 - Vitest
-- ESLint
-- Prettier
-- Docker va Docker Compose
+- ESLint và Prettier
+- Docker và Docker Compose
 
-## Cau Truc Du An
+## Cấu trúc dự án
 
-```txt
+```text
 .
-|-- config/
-|   `-- db.js
-|-- data/
-|   `-- products.json
-|-- middleware/
-|   |-- adminMiddleware.js
-|   `-- rateLimiter.js
-|-- routes/
-|   |-- auth.js
-|   `-- products.js
-|-- tests/
-|   `-- auth.test.mjs
-|-- web/
-|   |-- assets/
-|   |-- index.html
-|   |-- script.js
-|   |-- style.css
-|   `-- tailwind.css
-|-- Dockerfile
-|-- docker-compose.yml
-|-- package.json
-|-- server.js
-`-- UPDATED_FEATURES.md
+├── public/
+│   ├── content/
+│   │   └── content.json
+│   ├── css/
+│   │   ├── style.css
+│   │   └── tailwind.css
+│   ├── image/
+│   │   ├── products/
+│   │   └── logo.png
+│   ├── js/
+│   │   └── script.js
+│   └── index.html
+├── src/
+│   ├── config/
+│   │   └── db.js
+│   ├── data/
+│   │   └── products.json
+│   ├── middleware/
+│   │   ├── adminMiddleware.js
+│   │   └── rateLimiter.js
+│   ├── routes/
+│   │   ├── auth.js
+│   │   └── products.js
+│   └── server.js
+├── tests/
+│   └── auth.test.mjs
+├── .env.example
+├── docker-compose.yml
+├── Dockerfile
+├── ecosystem.config.cjs
+├── input.css
+├── package.json
+├── Procfile
+├── tailwind.config.js
+└── testdb.js
 ```
 
-## Chay Local
+## Chạy local
 
-1. Cai dependencies:
+### Yêu cầu
+
+- Node.js 18 trở lên
+- npm
+- MySQL 8 đang hoạt động
+
+### Cài đặt
 
 ```bash
 npm install
 ```
 
-2. Tao file `.env` o thu muc goc:
+Tạo `.env` từ file mẫu:
 
 ```bash
 cp .env.example .env
 ```
 
-Neu khong co `.env.example`, tao `.env` theo mau trong phan [Bien moi truong](#bien-moi-truong).
+Trên PowerShell:
 
-3. Dam bao MySQL dang chay va thong tin ket noi trong `.env` dung.
+```powershell
+Copy-Item .env.example .env
+```
 
-4. Chay app:
+Cập nhật thông tin MySQL trong `.env`, sau đó chạy:
 
 ```bash
 npm run dev
 ```
 
-Hoac chay production mode:
+Hoặc chạy chế độ production:
 
 ```bash
 npm start
 ```
 
-5. Mo trinh duyet:
+Mở `http://localhost:3000`.
 
-```txt
-http://localhost:3000
+Khi khởi động, ứng dụng sẽ:
+
+1. Tạo database nếu chưa tồn tại.
+2. Tạo các bảng cần thiết.
+3. Seed sản phẩm từ `src/data/products.json` nếu bảng `products` đang trống.
+4. Tạo tài khoản mặc định nếu bảng `users` đang trống và các biến `DEFAULT_*_PASSWORD` đã được cấu hình.
+
+Nếu PowerShell chặn `npm.ps1`, có thể dùng `npm.cmd`, ví dụ:
+
+```powershell
+npm.cmd run dev
 ```
 
-Server tu tao database va cac bang can thiet khi khoi dong. Neu bang `users` hoac `products` dang rong, app se seed du lieu mac dinh tu `data/products.json` hoac tu cau hinh mac dinh.
+## Biến môi trường
 
-## Bien Moi Truong
+Các biến chính:
 
 ```env
 PORT=3000
 HOST=0.0.0.0
 NODE_ENV=development
+
 PUBLIC_BASE_URL=http://localhost:3000
 ALLOWED_ORIGINS=http://localhost:3000
+MAX_BODY_SIZE=1048576
+SESSION_MAX_AGE_MS=43200000
 
 DB_HOST=localhost
 DB_PORT=3306
@@ -132,19 +145,29 @@ DB_USER=root
 DB_PASSWORD=your_mysql_password
 DB_NAME=webbanhang
 DB_CONNECTION_LIMIT=10
+```
 
-SESSION_MAX_AGE_MS=43200000
-MAX_BODY_SIZE=1048576
+`ALLOWED_ORIGINS` nhận nhiều origin, phân tách bằng dấu phẩy:
 
+```env
+ALLOWED_ORIGINS=https://shop.example.com,https://admin.example.com
+```
+
+### Tài khoản seed tùy chọn
+
+Các tài khoản này chỉ được tạo khi bảng `users` đang trống:
+
+```env
 DEFAULT_ADMIN_USERNAME=admin
-DEFAULT_ADMIN_PASSWORD=change-this-admin-password
+DEFAULT_ADMIN_PASSWORD=replace-with-a-strong-password
+
 DEFAULT_USER_USERNAME=user1
 DEFAULT_USER_PASSWORD=StrongPass1
 ```
 
-Khi deploy, nen doi `DEFAULT_ADMIN_PASSWORD`. Server se canh bao neu van dung mat khau admin mac dinh.
+Không dùng `change-this-admin-password` trong production.
 
-Neu dung MoMo:
+### MoMo sandbox
 
 ```env
 MOMO_PARTNER_CODE=
@@ -155,10 +178,10 @@ MOMO_RETURN_URL=https://your-domain.com/api/payments/momo/return
 MOMO_IPN_URL=https://your-domain.com/api/payments/momo/ipn
 ```
 
-Neu dung ZaloPay:
+### ZaloPay sandbox
 
 ```env
-ZALOPAY_APP_ID=2554
+ZALOPAY_APP_ID=
 ZALOPAY_KEY1=
 ZALOPAY_KEY2=
 ZALOPAY_CREATE_URL=https://sb-openapi.zalopay.vn/v2/create
@@ -167,65 +190,33 @@ ZALOPAY_CALLBACK_URL=https://your-domain.com/api/payments/zalopay/callback
 ZALOPAY_RETURN_URL=https://your-domain.com/api/payments/zalopay/return
 ```
 
-## Lenh Npm
+## Lệnh npm
+
+| Lệnh | Chức năng |
+|---|---|
+| `npm start` | Chạy `node src/server.js` |
+| `npm run dev` | Chạy server bằng Nodemon |
+| `npm run tailwind:build` | Build `public/css/tailwind.css` |
+| `npm run tailwind:watch` | Theo dõi và build Tailwind khi phát triển |
+| `npm run check` | Build Tailwind và kiểm tra cú pháp JavaScript |
+| `npm test` | Chạy test bằng Vitest |
+| `npm run test:watch` | Chạy Vitest ở chế độ watch |
+| `npm run lint` | Kiểm tra mã nguồn bằng ESLint |
+| `npm run format` | Format dự án bằng Prettier |
+
+Kiểm tra kết nối MySQL riêng:
 
 ```bash
-npm start
+node testdb.js
 ```
 
-Chay server bang `node server.js`.
+## API
 
-```bash
-npm run dev
-```
+API nhận body dạng JSON. Các route `/api/v1/...` được tự động ánh xạ sang `/api/...`.
 
-Chay server bang `nodemon`.
+### Xác thực
 
-```bash
-npm run tailwind:build
-```
-
-Build `web/tailwind.css` tu `input.css`.
-
-```bash
-npm run tailwind:watch
-```
-
-Watch Tailwind khi phat trien UI.
-
-```bash
-npm run check
-```
-
-Build Tailwind va kiem tra cu phap cac file JS chinh.
-
-```bash
-npm test
-```
-
-Chay test bang Vitest.
-
-```bash
-npm run lint
-npm run format
-```
-
-Kiem tra va format code.
-
-## API Chinh
-
-Tat ca API v1 co the goi bang prefix `/api/v1/...`. Server se map ve route hien tai `/api/...` de giu tuong thich.
-
-### Health
-
-```txt
-GET /api/health
-GET /health
-```
-
-### Auth
-
-```txt
+```text
 POST /api/auth/register
 POST /api/auth/login
 POST /api/auth/logout
@@ -233,33 +224,44 @@ GET  /api/auth/me
 PUT  /api/auth/me
 ```
 
-Register yeu cau password co it nhat 8 ky tu, 1 chu hoa va 1 so.
+Mật khẩu đăng ký phải có ít nhất 8 ký tự, một chữ hoa và một chữ số.
 
-Sau khi login/register thanh cong, response tra ve `token`. Cac API can dang nhap gui token nhu sau:
+Sau khi đăng nhập hoặc đăng ký, gửi token qua một trong hai header:
 
-```txt
+```http
 Authorization: Bearer <token>
 ```
 
-Hoac:
+hoặc:
 
-```txt
+```http
 X-Session-Token: <token>
 ```
 
-### Products
+Session hiện được lưu trong bộ nhớ và sẽ mất khi server khởi động lại.
 
-```txt
+### Sản phẩm
+
+```text
 GET    /api/products
 GET    /api/products/:id
-POST   /api/products        Admin token
-PUT    /api/products/:id    Admin token
-DELETE /api/products/:id    Admin token
+POST   /api/products       Admin
+PUT    /api/products/:id   Admin
+DELETE /api/products/:id   Admin
 ```
 
-### Payments
+### Đơn hàng
 
-```txt
+```text
+GET /api/orders/me   Người dùng đã đăng nhập
+GET /api/orders      Admin
+```
+
+### Thanh toán
+
+```text
+POST /api/payments/cod
+
 POST /api/payments/momo
 POST /api/payments/momo/ipn
 GET  /api/payments/momo/return
@@ -268,117 +270,103 @@ POST /api/payments/zalopay
 POST /api/payments/zalopay/callback
 GET  /api/payments/zalopay/return
 POST /api/payments/zalopay/status
-
-POST /api/payments/cod
 ```
 
-MoMo, ZaloPay va COD deu yeu cau user dang nhap truoc khi tao don.
+Các API tạo đơn COD, MoMo và ZaloPay yêu cầu:
 
-### Orders
+- Token đăng nhập hợp lệ.
+- Hồ sơ có đủ họ tên, số điện thoại và địa chỉ.
+- Body có mảng `items`.
 
-```txt
-GET /api/orders/me    Dang nhap
-GET /api/orders       Admin token
+Ví dụ:
+
+```json
+{
+  "items": [
+    {
+      "productId": 5,
+      "size": "M",
+      "quantity": 2
+    }
+  ]
+}
 ```
+
+Server tự đọc giá sản phẩm, giá sale và tồn kho từ database; không tin giá hoặc tổng tiền do client gửi.
+
+### Health check
+
+```text
+GET /api/health
+GET /health
+```
+
+Endpoint trả HTTP `200` khi database hoạt động và `503` khi mất kết nối.
 
 ## Database
 
-Database duoc cau hinh trong `config/db.js`. App tu tao database neu chua co, sau do tao cac bang:
+Ứng dụng quản lý schema trong `src/config/db.js` và sử dụng các bảng:
 
-```txt
-users
-products
-orders
-order_items
-```
+| Bảng | Mục đích |
+|---|---|
+| `users` | Tài khoản, role và hồ sơ giao hàng |
+| `products` | Sản phẩm, giá sale, size và tồn kho |
+| `orders` | Thông tin đơn hàng và trạng thái thanh toán |
+| `order_items` | Các sản phẩm thuộc từng đơn hàng |
 
-Bang `products` luu ten, danh muc, gia, phan tram sale, anh, section, sizes, stock theo size va `total_stock` cho san pham khong co size.
-
-Bang `orders` luu ma don, user, provider, status, amount, thong tin khach hang, payload cong thanh toan va co `stock_applied` de dam bao moi don chi tru ton kho mot lan.
-
-Bang `order_items` luu tung san pham trong don hang.
-
-Database co index cho mot so truong hay query:
-
-```txt
-products.category
-products.section
-orders.status
-orders.provider
-orders.user_id
-order_items.order_id
-order_items.product_id
-```
-
-## Thanh Toan
-
-### COD
-
-Quy trinh dat COD:
-
-1. Dang nhap.
-2. Cap nhat ho so giao hang day du.
-3. Them san pham vao gio hang.
-4. Goi `POST /api/payments/cod`.
-
-Don COD tao thanh cong co status `COD_PENDING` va tru ton kho ngay.
-
-### MoMo Va ZaloPay
-
-Quy trinh thanh toan online:
-
-1. Dang nhap.
-2. Tao payment request.
-3. Server tao local order voi status `CREATED`.
-4. Neu cong thanh toan tao link thanh cong, order chuyen sang `PENDING`.
-5. IPN/callback xac nhan thanh toan thanh cong se cap nhat status `PAID` va tru ton kho.
-6. Neu thanh toan that bai, order chuyen sang `FAILED`.
-
-Server tinh lai tong tien tu database, khong tin `amount` do client gui len.
+COD trừ tồn kho ngay khi tạo đơn thành công. MoMo và ZaloPay chỉ trừ tồn kho sau khi IPN hoặc callback xác nhận thanh toán thành công. Cột `stock_applied` ngăn một đơn hàng bị trừ tồn kho nhiều lần.
 
 ## Docker
 
-Chay bang Docker Compose:
+Trong `.env`, đặt host database theo tên service Compose:
+
+```env
+DB_HOST=db
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+DB_NAME=webbanhang
+```
+
+Sau đó chạy:
 
 ```bash
 docker compose up --build
 ```
 
-App mo o:
+Ứng dụng được mở tại `http://localhost:3000`. Dữ liệu MySQL được lưu trong volume `mysql_data`.
 
-```txt
-http://localhost:3000
-```
+## Triển khai
 
-`docker-compose.yml` gom service `web` va `db` MySQL 8. File `.env` duoc dung cho ca app va database.
+Cấu hình cơ bản:
 
-## Trien Khai
-
-Hosting can ho tro Node.js va MySQL.
-
-Cau hinh co ban:
-
-```txt
+```text
 Start command: npm start
 Health check: /api/health
-Port: lay tu bien moi truong PORT
-Public folder: khong can, server.js tu serve static trong web/
+Port: biến môi trường PORT
+Public directory: public/
 ```
 
-Khi deploy:
+Checklist production:
 
-1. Cai dependencies bang `npm ci --omit=dev`.
-2. Tao `.env` production.
-3. Dat `PUBLIC_BASE_URL` bang domain that.
-4. Dat `ALLOWED_ORIGINS` bang domain frontend.
-5. Doi `DEFAULT_ADMIN_PASSWORD`.
-6. Cap nhat callback/return URL cua MoMo/ZaloPay ve domain production.
-7. Chay `npm start`.
+1. Chạy Node.js 18 trở lên và MySQL 8.
+2. Cài dependency bằng `npm ci --omit=dev`.
+3. Thiết lập `PUBLIC_BASE_URL` bằng domain HTTPS thực tế.
+4. Chỉ định chính xác `ALLOWED_ORIGINS`.
+5. Dùng mật khẩu admin mạnh.
+6. Cấu hình callback/IPN MoMo và ZaloPay bằng URL public.
+7. Không commit file `.env`.
+8. Chạy `npm run check`, `npm test` và `npm run lint` trước khi triển khai.
 
-## Ghi Chu Phat Trien
+Có thể chạy bằng PM2 với:
 
-- Khong phan quyen admin bang header `role`, `x-role` hay `x-user-role` tu client.
-- Admin API phai dung token cua tai khoan co role `Admin`.
-- Cac route `/register`, `/login`, `/logout` cu khong con la API chinh. Dung `/api/auth/register`, `/api/auth/login`, `/api/auth/logout`.
-- Danh sach de xuat nang cap nam trong `UPDATED_FEATURES.md`.
-- Truoc khi thay doi logic thanh toan hoac ton kho, nen chay `npm run check` va `npm test`.
+```bash
+pm2 start ecosystem.config.cjs
+```
+
+## Lưu ý phát triển
+
+- Quyền admin chỉ được xác định từ session của tài khoản có role `Admin`.
+- Không gửi hoặc tin cậy các header role do client tự đặt.
+- `public/css/tailwind.css` là file được sinh từ `input.css`.
+- Các đề xuất nâng cấp tiếp theo nằm trong `UPDATED_FEATURES.md`.
