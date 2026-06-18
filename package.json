@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Website shop with auth, cart, product size, admin products, and payment APIs.",
-  "main": "src/server.js",
+  "main": "server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",

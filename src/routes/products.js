@@ -61,7 +61,7 @@ const defaultProducts = [
     displayCategory: 'Apparel',
     price: 790000,
     salePercent: 20,
-    image: '/image/products/England.jpg',
+    image: './assets/image/England.jpg',
     section: 'products',
     sizes: ['S', 'M', 'L', 'XL'],
     stock: { S: 5, M: 8, L: 6, XL: 3 }

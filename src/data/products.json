@@ -102,7 +102,7 @@
     "displayCategory": "Apparel",
     "price": 790000,
     "salePercent": 20,
-    "image": "/image/products/England.jpg",
+    "image": "./assets/image/England.jpg",
     "section": "products",
     "sizes": [
       "S",

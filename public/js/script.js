@@ -6,7 +6,7 @@ const currency = new Intl.NumberFormat('vi-VN', {
 const SESSION_KEY = 'shopSession';
 const CART_KEY = 'shopCart';
 const WISHLIST_KEY = 'shopWishlist';
-const CONTENT_URL = '/content/content.json';
+const CONTENT_URL = '/content.json';
 
 let products = [];
 let cart = loadJson(CART_KEY, []).map(normalizeCartItem).filter(Boolean);

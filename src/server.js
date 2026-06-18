@@ -6,20 +6,26 @@ const path = require('path');
 const crypto = require('crypto');
 const db = require('./config/db');
 const { ensureUserDataFile, handleAuthRoute, getUserByUsername } = require('./routes/auth');
-const { ensureProductsDataFile, handleProductsRoute, readProducts } = require('./routes/products');
+const {
+  ensureProductsDataFile,
+  handleProductsRoute,
+  readProducts,
+  invalidateProductsCache
+} = require('./routes/products');
 const { getRequestToken, isAdminRequest, sendForbidden } = require('./middleware/adminMiddleware');
 const { createRateLimiter } = require('./middleware/rateLimiter');
 
 const root = path.resolve(__dirname, '..');
 const webRoot = path.join(root, 'public');
-const dataRoot = path.join(__dirname, 'data');
+const assetsRoot = path.join(webRoot, 'assets');
+const bootstrapRoot = path.join(root, 'bootstrap-5.3.8-dist');
 const port = process.env.PORT || 3000;
 const host = process.env.HOST || '0.0.0.0';
 const publicBaseUrl = (process.env.PUBLIC_BASE_URL || process.env.BASE_URL || `http://localhost:${port}`).replace(/\/+$/, '');
 const sessions = new Map();
-const userDataFile = path.join(dataRoot, 'DATA.txt');
+const userDataFile = path.join(root, 'data', 'DATA.txt');
 
-const productsDataFile = path.join(dataRoot, 'products.json');
+const productsDataFile = path.join(root, 'data', 'products.json');
 const maxBodySize = parsePositiveNumber(process.env.MAX_BODY_SIZE, 1024 * 1024);
 const sessionMaxAgeMs = parsePositiveNumber(process.env.SESSION_MAX_AGE_MS, 1000 * 60 * 60 * 12);
 const allowedOrigins = String(process.env.ALLOWED_ORIGINS || '')
@@ -506,6 +512,7 @@ async function createCodOrder(req, res) {
     orderId,
     amount: order.amount,
     items: order.items,
+    products: await readProducts(),
     customer: savedOrder.user,
     message: 'Da tao don hang COD'
   });
@@ -543,37 +550,36 @@ function resolveStaticPath(pathname) {
     return safeResolve(webRoot, 'index.html');
   }
 
-  const legacyPublicFiles = {
-    '/style.css': 'css/style.css',
-    '/tailwind.css': 'css/tailwind.css',
-    '/script.js': 'js/script.js',
-    '/content.json': 'content/content.json',
-    '/assets/logo.png': 'image/logo.png'
-  };
 
-  if (legacyPublicFiles[route]) {
-    return safeResolve(webRoot, legacyPublicFiles[route]);
-  }
+    if (route === '/style.css' || route === '/tailwind.css' || route === '/script.js' || route === '/content.json') {
+      return safeResolve(webRoot, route.slice(1));
+    }
 
-  if (
-    route.startsWith('/css/') ||
-    route.startsWith('/js/') ||
-    route.startsWith('/image/') ||
-    route.startsWith('/content/')
-  ) {
-    return safeResolve(webRoot, route.slice(1));
-  }
+    if (route.startsWith('/css/')) {
+      return safeResolve(webRoot, route.slice(1));
+    }
 
-  if (route.startsWith('/assets/image/')) {
-    return safeResolve(webRoot, 'image/products', route.slice('/assets/image/'.length));
+    if (route.startsWith('/js/')) {
+      return safeResolve(webRoot, route.slice(1));
+    }
+
+    if (route.startsWith('/image/')) {
+      return safeResolve(webRoot, route.slice(1));
+    }
+  if (route.startsWith('/assets/')) {
+    return safeResolve(assetsRoot, route.slice('/assets/'.length));
   }
 
   if (route.startsWith('/accesst/')) {
-    return safeResolve(webRoot, 'image/products', route.slice('/accesst/'.length));
+    return safeResolve(assetsRoot, route.slice('/accesst/'.length));
   }
 
   if (route.startsWith('/web/')) {
     return safeResolve(webRoot, route.slice('/web/'.length));
+  }
+
+  if (route.startsWith('/bootstrap-5.3.8-dist/')) {
+    return safeResolve(bootstrapRoot, route.slice('/bootstrap-5.3.8-dist/'.length));
   }
 
   return null;
@@ -619,23 +625,23 @@ function serveFile(filePath, req, res) {
     }
 
     fs.readFile(filePath, (err, content) => {
-      if (err) {
-        res.writeHead(err.code === 'ENOENT' ? 404 : 500, {
-          ...securityHeaders,
-          'Content-Type': 'text/plain; charset=utf-8'
-        });
-        res.end(err.code === 'ENOENT' ? '404 - Khong tim thay tep' : 'Loi may chu noi bo');
-        return;
-      }
-
-      res.writeHead(200, {
+    if (err) {
+      res.writeHead(err.code === 'ENOENT' ? 404 : 500, {
         ...securityHeaders,
-        'Content-Type': contentType,
-        'Cache-Control': cacheControl,
-        ETag: etag
+        'Content-Type': 'text/plain; charset=utf-8'
       });
-      res.end(content);
+      res.end(err.code === 'ENOENT' ? '404 - Khong tim thay tep' : 'Loi may chu noi bo');
+      return;
+    }
+
+    res.writeHead(200, {
+      ...securityHeaders,
+      'Content-Type': contentType,
+      'Cache-Control': cacheControl,
+      ETag: etag
     });
+    res.end(content);
+  });
   });
 }
 
@@ -1235,6 +1241,7 @@ async function applyOrderStockByDbId(connection, orderDbId) {
     [orderDbId]
   );
 
+  invalidateProductsCache();
   return true;
 }
 
