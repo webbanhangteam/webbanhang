@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import auth from '../routes/auth.js';
+import auth from '../src/routes/auth.js';
 
 describe('password hashing', () => {
   it('verifies valid passwords and rejects invalid passwords', () => {

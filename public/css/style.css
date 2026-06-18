@@ -1432,6 +1432,92 @@ a {
     text-transform: uppercase;
 }
 
+.order-progress {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin: 8px 0;
+}
+
+.order-progress-step {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    gap: 6px;
+    color: #9ca3af;
+    text-align: center;
+}
+
+.order-progress-step::before {
+    position: absolute;
+    top: 13px;
+    right: 50%;
+    left: -50%;
+    height: 2px;
+    background: #d1d5db;
+    content: "";
+}
+
+.order-progress-step:first-child::before {
+    display: none;
+}
+
+.order-progress-step > span {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 2px solid #d1d5db;
+    border-radius: 50%;
+    background: white;
+    font-size: 0.72rem;
+    font-weight: 900;
+}
+
+.order-progress-step small {
+    max-width: 145px;
+    font-size: 0.7rem;
+    line-height: 1.35;
+}
+
+.order-progress-step.completed,
+.order-progress-step.active {
+    color: #166534;
+}
+
+.order-progress-step.completed::before,
+.order-progress-step.active::before {
+    background: #22c55e;
+}
+
+.order-progress-step.completed > span,
+.order-progress-step.active > span {
+    border-color: #22c55e;
+    color: white;
+    background: #22c55e;
+}
+
+.order-progress-step.active > span {
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15);
+}
+
+.order-received-button {
+    justify-self: end;
+    padding: 9px 13px;
+    border: 1px solid #16a34a;
+    border-radius: 9px;
+    color: white;
+    background: #16a34a;
+    font-size: 0.8rem;
+    font-weight: 900;
+}
+
+.order-received-button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}
+
 .auth-message {
     min-height: 22px;
     margin: 0;
@@ -1646,9 +1732,89 @@ a {
     gap: 4px;
 }
 
+.admin-order-new {
+    background: #fff8ed;
+}
+
+.admin-order-code {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+}
+
+.admin-order-new-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    color: #9a3412;
+    background: #ffedd5;
+    font-size: 0.68rem;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.admin-order-seen-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 9px;
+    padding: 7px 10px;
+    border: 1px solid #16a34a;
+    border-radius: 8px;
+    color: #166534;
+    background: #f0fdf4;
+    font-size: 0.75rem;
+    font-weight: 800;
+}
+
+.admin-order-seen-button:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}
+
 .admin-order-items span,
 .admin-customer span {
     display: block;
+}
+
+.admin-fulfillment {
+    display: grid;
+    gap: 8px;
+    min-width: 190px;
+}
+
+.admin-fulfillment-status {
+    font-size: 0.8rem;
+    font-weight: 900;
+}
+
+.admin-fulfillment button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: max-content;
+    padding: 7px 10px;
+    border: 1px solid var(--ink);
+    border-radius: 8px;
+    color: white;
+    background: var(--ink);
+    font-size: 0.74rem;
+    font-weight: 800;
+}
+
+.admin-fulfillment button:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}
+
+.admin-fulfillment small {
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 700;
 }
 
 .admin-customer small,
@@ -1852,6 +2018,29 @@ a {
 .admin-tabs button {
     padding: 0 16px;
     text-transform: uppercase;
+}
+
+.admin-tabs button[data-admin-tab="orders"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.admin-new-orders-badge {
+    min-width: 21px;
+    height: 21px;
+    padding: 0 6px;
+    border-radius: 999px;
+    color: white;
+    background: #dc2626;
+    font-size: 0.72rem;
+    line-height: 21px;
+    text-align: center;
+}
+
+.admin-tabs button.active .admin-new-orders-badge {
+    color: #dc2626;
+    background: white;
 }
 
 .detail-tabs-nav button.active,
@@ -2341,5 +2530,39 @@ a {
 
     .size-list {
         grid-template-columns: repeat(3, 1fr);
+    }
+
+    .order-history-card header,
+    .order-history-card footer {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .order-progress {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .order-progress-step {
+        grid-template-columns: 28px 1fr;
+        justify-items: start;
+        align-items: center;
+        text-align: left;
+    }
+
+    .order-progress-step::before {
+        top: -8px;
+        bottom: 50%;
+        left: 13px;
+        width: 2px;
+        height: auto;
+    }
+
+    .order-progress-step small {
+        max-width: none;
+    }
+
+    .order-received-button {
+        justify-self: stretch;
     }
 }

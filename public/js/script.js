@@ -7,6 +7,13 @@ const SESSION_KEY = 'shopSession';
 const CART_KEY = 'shopCart';
 const WISHLIST_KEY = 'shopWishlist';
 const CONTENT_URL = '/content.json';
+const ADMIN_ORDER_STREAM_RECONNECT_MS = 3000;
+const ORDER_FULFILLMENT_STEPS = [
+    { value: 'ORDERED', label: 'Đã đặt hàng' },
+    { value: 'PREPARING', label: 'Đã xác nhận / đang chuẩn bị hàng' },
+    { value: 'SHIPPING', label: 'Đang giao' },
+    { value: 'DELIVERED', label: 'Đã nhận hàng' }
+];
 
 let products = [];
 let cart = loadJson(CART_KEY, []).map(normalizeCartItem).filter(Boolean);
@@ -14,6 +21,14 @@ let currentUser = normalizeSession(loadJson(SESSION_KEY, null));
 let wishlist = new Set(loadJson(WISHLIST_KEY, []).map((id) => Number(id)).filter(Boolean));
 let currentDetailProductId = null;
 let siteContent = {};
+let adminOrders = [];
+let adminOrderStreamController = null;
+let adminOrderStreamReconnectTimer = null;
+let adminOrderStreamGeneration = 0;
+let userOrders = [];
+let userOrderStreamController = null;
+let userOrderStreamReconnectTimer = null;
+let userOrderStreamGeneration = 0;
 
 const cartCount = document.getElementById('cartCount');
 const cartItems = document.getElementById('cartItems');
@@ -43,6 +58,7 @@ const adminMessage = document.getElementById('adminMessage');
 const adminOrdersBody = document.getElementById('adminOrdersBody');
 const adminOrdersMessage = document.getElementById('adminOrdersMessage');
 const refreshAdminOrdersButton = document.getElementById('refreshAdminOrdersButton');
+const adminNewOrdersBadge = document.getElementById('adminNewOrdersBadge');
 const profileLoggedOut = document.getElementById('profileLoggedOut');
 const profileLoggedIn = document.getElementById('profileLoggedIn');
 const profileAvatarLetter = document.getElementById('profileAvatarLetter');
@@ -344,6 +360,8 @@ async function logout() {
 }
 
 function clearSession() {
+    stopAdminOrderNotifications();
+    stopUserOrderNotifications();
     localStorage.removeItem(SESSION_KEY);
     currentUser = null;
 }
@@ -417,6 +435,27 @@ function handleDocumentClick(event) {
     const deleteButton = event.target.closest('[data-admin-delete]');
     if (deleteButton) {
         deleteAdminProduct(Number(deleteButton.dataset.adminDelete));
+        return;
+    }
+
+    const seenOrderButton = event.target.closest('[data-order-seen]');
+    if (seenOrderButton) {
+        markAdminOrderSeen(Number(seenOrderButton.dataset.orderSeen));
+        return;
+    }
+
+    const fulfillmentButton = event.target.closest('[data-order-fulfillment]');
+    if (fulfillmentButton) {
+        updateAdminOrderFulfillment(
+            Number(fulfillmentButton.dataset.orderId),
+            fulfillmentButton.dataset.orderFulfillment
+        );
+        return;
+    }
+
+    const receivedButton = event.target.closest('[data-order-received]');
+    if (receivedButton) {
+        confirmUserOrderReceived(Number(receivedButton.dataset.orderReceived));
     }
 }
 
@@ -1168,6 +1207,8 @@ function switchProfileTab(tab) {
 
 function updateAccountUi() {
     if (!currentUser?.token) {
+        stopAdminOrderNotifications();
+        stopUserOrderNotifications();
         accountStatus.textContent = contentText('messages.account.loggedOut', 'Chưa đăng nhập');
         openAuthButton.hidden = false;
         logoutButton.hidden = true;
@@ -1196,11 +1237,13 @@ function updateAccountUi() {
     updateProfileSummary();
     switchProfileTab('info');
     orderHistoryPanel.hidden = false;
-    loadOrderHistory();
+    startUserOrderNotifications();
     adminPanel.hidden = currentUser.role !== 'Admin';
     if (currentUser.role === 'Admin') {
         renderAdminStats();
-        loadAdminOrders();
+        startAdminOrderNotifications();
+    } else {
+        stopAdminOrderNotifications();
     }
 }
 
@@ -1225,7 +1268,9 @@ function switchAdminTab(tab) {
         panel.classList.toggle('active', panel.id === `adminTab${capitalize(normalizedTab)}`);
     });
 
-    if (normalizedTab === 'orders') loadAdminOrders();
+    if (normalizedTab === 'orders') {
+        loadAdminOrders();
+    }
 }
 
 function switchDetailTab(tab) {
@@ -1279,9 +1324,21 @@ async function loadOrderHistory() {
             return;
         }
 
-        renderOrderHistory(Array.isArray(data.orders) ? data.orders : []);
+        const fetchedOrders = Array.isArray(data.orders) ? data.orders : [];
+        const ordersById = new Map(fetchedOrders.map((order) => [Number(order.id), order]));
+        userOrders.forEach((existingOrder) => {
+            const fetchedOrder = ordersById.get(Number(existingOrder.id));
+            if (!fetchedOrder || getOrderUpdatedTime(existingOrder) > getOrderUpdatedTime(fetchedOrder)) {
+                ordersById.set(Number(existingOrder.id), existingOrder);
+            }
+        });
+        userOrders = Array.from(ordersById.values())
+            .sort((a, b) => Number(b.id) - Number(a.id));
+        renderOrderHistory(userOrders);
+        return userOrders;
     } catch {
         orderHistoryMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
+        return null;
     }
 }
 
@@ -1299,6 +1356,12 @@ function renderOrderHistory(orders) {
             const size = item.size ? ` - Size ${escapeHtml(item.size)}` : '';
             return `<li>${escapeHtml(item.name)}${size} x ${Number(item.quantity) || 0}</li>`;
         }).join('');
+        const fulfillmentStatus = normalizeOrderFulfillmentStatus(order.fulfillmentStatus);
+        const receivedButton = fulfillmentStatus === 'SHIPPING'
+            ? `<button type="button" class="order-received-button" data-order-received="${Number(order.id)}">
+                <i class="bi bi-box2-heart"></i> Xác nhận đã nhận hàng
+               </button>`
+            : '';
 
         return `
             <article class="order-history-card">
@@ -1307,21 +1370,195 @@ function renderOrderHistory(orders) {
                         <h4>${escapeHtml(order.orderId || '')}</h4>
                         <small>${escapeHtml(order.provider || '')} ${createdAt ? `- ${escapeHtml(createdAt)}` : ''}</small>
                     </div>
-                    <span class="order-status">${escapeHtml(order.status || '')}</span>
+                    <span class="order-status">${escapeHtml(getOrderFulfillmentLabel(fulfillmentStatus))}</span>
                 </header>
+                ${renderOrderFulfillmentProgress(fulfillmentStatus)}
                 <ul>${itemRows}</ul>
                 <footer>
                     <span>${escapeHtml(contentTemplate('labels.itemCount', { count: items.length }, '{count} mặt hàng'))}</span>
                     <strong>${currency.format(Number(order.amount) || 0)}</strong>
                 </footer>
+                ${receivedButton}
             </article>
         `;
     }).join('');
     orderHistoryMessage.textContent = '';
 }
 
+function renderOrderFulfillmentProgress(status) {
+    const currentIndex = ORDER_FULFILLMENT_STEPS.findIndex((step) => step.value === status);
+
+    return `
+        <div class="order-progress" aria-label="Tiến trình đơn hàng">
+            ${ORDER_FULFILLMENT_STEPS.map((step, index) => {
+                const stateClass = index < currentIndex
+                    ? 'completed'
+                    : index === currentIndex
+                        ? 'active'
+                        : '';
+                return `
+                    <div class="order-progress-step ${stateClass}">
+                        <span>${index < currentIndex ? '<i class="bi bi-check-lg"></i>' : index + 1}</span>
+                        <small>${escapeHtml(step.label)}</small>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
+function normalizeOrderFulfillmentStatus(value) {
+    const normalized = String(value || 'ORDERED').trim().toUpperCase();
+    return ORDER_FULFILLMENT_STEPS.some((step) => step.value === normalized)
+        ? normalized
+        : 'ORDERED';
+}
+
+function getOrderFulfillmentLabel(status) {
+    return ORDER_FULFILLMENT_STEPS.find((step) => step.value === status)?.label || 'Đã đặt hàng';
+}
+
+function getOrderUpdatedTime(order) {
+    const time = new Date(order?.updatedAt || order?.createdAt || 0).getTime();
+    return Number.isFinite(time) ? time : 0;
+}
+
+async function startUserOrderNotifications() {
+    stopUserOrderNotifications();
+    const generation = userOrderStreamGeneration;
+
+    connectUserOrderStream(generation);
+    await loadOrderHistory();
+}
+
+function stopUserOrderNotifications() {
+    userOrderStreamGeneration += 1;
+
+    if (userOrderStreamController) {
+        userOrderStreamController.abort();
+        userOrderStreamController = null;
+    }
+
+    if (userOrderStreamReconnectTimer) {
+        window.clearTimeout(userOrderStreamReconnectTimer);
+        userOrderStreamReconnectTimer = null;
+    }
+
+    userOrders = [];
+}
+
+async function connectUserOrderStream(generation) {
+    if (generation !== userOrderStreamGeneration || !currentUser?.token) return;
+
+    const controller = new AbortController();
+    userOrderStreamController = controller;
+
+    try {
+        const response = await fetch('/api/orders/me/events', {
+            headers: authHeaders(false),
+            cache: 'no-store',
+            signal: controller.signal
+        });
+
+        if (!response.ok || !response.body) {
+            throw new Error('Khong mo duoc ket noi trang thai don hang');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (generation === userOrderStreamGeneration) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            buffer = consumeUserOrderEvents(buffer);
+        }
+    } catch (err) {
+        if (err.name === 'AbortError') return;
+    } finally {
+        if (userOrderStreamController === controller) {
+            userOrderStreamController = null;
+        }
+    }
+
+    if (generation === userOrderStreamGeneration && currentUser?.token) {
+        userOrderStreamReconnectTimer = window.setTimeout(() => {
+            connectUserOrderStream(generation);
+        }, ADMIN_ORDER_STREAM_RECONNECT_MS);
+    }
+}
+
+function consumeUserOrderEvents(buffer) {
+    let boundary = findEventBoundary(buffer);
+
+    while (boundary) {
+        const rawEvent = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary.length);
+        handleUserOrderEvent(rawEvent);
+        boundary = findEventBoundary(buffer);
+    }
+
+    return buffer;
+}
+
+function handleUserOrderEvent(rawEvent) {
+    const { eventName, payload } = parseServerSentEvent(rawEvent);
+    if (eventName !== 'order.fulfillment_changed' || !payload) return;
+
+    userOrders = userOrders.map((order) => {
+        if (Number(order.id) !== Number(payload.id)) return order;
+        return {
+            ...order,
+            fulfillmentStatus: payload.fulfillmentStatus,
+            receivedAt: payload.receivedAt || null,
+            updatedAt: payload.updatedAt || order.updatedAt
+        };
+    });
+    renderOrderHistory(userOrders);
+    if (payload.actor !== 'customer') {
+        showToast(
+            `Đơn ${payload.orderId}: ${getOrderFulfillmentLabel(normalizeOrderFulfillmentStatus(payload.fulfillmentStatus))}`,
+            'info',
+            5000
+        );
+    }
+}
+
+async function confirmUserOrderReceived(orderId) {
+    if (!currentUser?.token || !orderId) return;
+    if (!confirm('Xác nhận bạn đã nhận được đơn hàng này?')) return;
+
+    const button = document.querySelector(`[data-order-received="${orderId}"]`);
+    if (button) button.disabled = true;
+
+    try {
+        const response = await fetch(`/api/orders/${orderId}/received`, {
+            method: 'POST',
+            headers: authHeaders(false)
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.order) {
+            showToast(data.message || 'Không thể xác nhận đã nhận hàng.', 'error');
+            if (button) button.disabled = false;
+            return;
+        }
+
+        userOrders = userOrders.map((order) => {
+            return Number(order.id) === Number(orderId) ? data.order : order;
+        });
+        renderOrderHistory(userOrders);
+        showToast('Đã xác nhận nhận hàng.', 'success');
+    } catch {
+        showToast('Không kết nối được server.', 'error');
+        if (button) button.disabled = false;
+    }
+}
+
 async function loadAdminOrders() {
-    if (!currentUser?.token || currentUser.role !== 'Admin') return;
+    if (!currentUser?.token || currentUser.role !== 'Admin') return null;
 
     adminOrdersMessage.textContent = contentText('messages.orders.loading', 'Đang tải đơn hàng...');
 
@@ -1333,15 +1570,253 @@ async function loadAdminOrders() {
 
         if (!response.ok) {
             adminOrdersMessage.textContent = data.message || contentText('messages.adminOrders.loadFailed', 'Không tải được lịch sử bán hàng.');
+            return null;
+        }
+
+        const fetchedOrders = Array.isArray(data.orders) ? data.orders : [];
+        const realtimeOnlyOrders = adminOrders.filter((existingOrder) => {
+            return !fetchedOrders.some((order) => Number(order.id) === Number(existingOrder.id));
+        });
+        adminOrders = [...realtimeOnlyOrders, ...fetchedOrders]
+            .sort((a, b) => Number(b.id) - Number(a.id));
+        renderAdminOrders(adminOrders);
+        renderAdminStats(adminOrders);
+        return adminOrders;
+    } catch {
+        adminOrdersMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
+        return null;
+    }
+}
+
+async function startAdminOrderNotifications() {
+    stopAdminOrderNotifications();
+    const generation = adminOrderStreamGeneration;
+
+    connectAdminOrderStream(generation);
+    await loadAdminOrders();
+}
+
+function stopAdminOrderNotifications() {
+    adminOrderStreamGeneration += 1;
+
+    if (adminOrderStreamController) {
+        adminOrderStreamController.abort();
+        adminOrderStreamController = null;
+    }
+
+    if (adminOrderStreamReconnectTimer) {
+        window.clearTimeout(adminOrderStreamReconnectTimer);
+        adminOrderStreamReconnectTimer = null;
+    }
+
+    adminOrders = [];
+    renderAdminOrderBadge();
+}
+
+async function connectAdminOrderStream(generation) {
+    if (generation !== adminOrderStreamGeneration || !currentUser?.token || currentUser.role !== 'Admin') return;
+
+    const controller = new AbortController();
+    adminOrderStreamController = controller;
+    try {
+        const response = await fetch('/api/admin/order-events', {
+            headers: authHeaders(false),
+            cache: 'no-store',
+            signal: controller.signal
+        });
+
+        if (!response.ok || !response.body) {
+            throw new Error('Khong mo duoc ket noi thong bao don hang');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (generation === adminOrderStreamGeneration) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            buffer = consumeAdminOrderEvents(buffer);
+        }
+    } catch (err) {
+        if (err.name === 'AbortError') return;
+    } finally {
+        if (adminOrderStreamController === controller) {
+            adminOrderStreamController = null;
+        }
+    }
+
+    if (generation === adminOrderStreamGeneration && currentUser?.role === 'Admin') {
+        adminOrderStreamReconnectTimer = window.setTimeout(() => {
+            connectAdminOrderStream(generation);
+        }, ADMIN_ORDER_STREAM_RECONNECT_MS);
+    }
+}
+
+function consumeAdminOrderEvents(buffer) {
+    let boundary = findEventBoundary(buffer);
+
+    while (boundary) {
+        const rawEvent = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary.length);
+        handleAdminOrderEvent(rawEvent);
+        boundary = findEventBoundary(buffer);
+    }
+
+    return buffer;
+}
+
+function findEventBoundary(buffer) {
+    const unixIndex = buffer.indexOf('\n\n');
+    const windowsIndex = buffer.indexOf('\r\n\r\n');
+    const matches = [
+        unixIndex >= 0 ? { index: unixIndex, length: 2 } : null,
+        windowsIndex >= 0 ? { index: windowsIndex, length: 4 } : null
+    ].filter(Boolean);
+
+    if (!matches.length) return null;
+    return matches.reduce((first, match) => match.index < first.index ? match : first);
+}
+
+function handleAdminOrderEvent(rawEvent) {
+    const { eventName, payload } = parseServerSentEvent(rawEvent);
+    if (!payload) return;
+
+    if (eventName === 'order.created') {
+        const exists = adminOrders.some((order) => Number(order.id) === Number(payload.id));
+        if (!exists) {
+            adminOrders = [payload, ...adminOrders];
+        }
+        renderAdminOrders(adminOrders);
+        renderAdminStats(adminOrders);
+        showToast(
+            `Có đơn hàng mới ${payload.orderId} - ${currency.format(Number(payload.amount) || 0)}`,
+            'info',
+            6000
+        );
+        return;
+    }
+
+    if (eventName === 'order.seen') {
+        adminOrders = adminOrders.map((order) => {
+            if (Number(order.id) !== Number(payload.id)) return order;
+            return {
+                ...order,
+                isNew: false,
+                adminSeenAt: payload.adminSeenAt || new Date().toISOString()
+            };
+        });
+        renderAdminOrders(adminOrders);
+        return;
+    }
+
+    if (eventName === 'order.fulfillment_changed') {
+        adminOrders = adminOrders.map((order) => {
+            if (Number(order.id) !== Number(payload.id)) return order;
+            return {
+                ...order,
+                fulfillmentStatus: payload.fulfillmentStatus,
+                receivedAt: payload.receivedAt || null,
+                updatedAt: payload.updatedAt || order.updatedAt
+            };
+        });
+        renderAdminOrders(adminOrders);
+    }
+}
+
+function parseServerSentEvent(rawEvent) {
+    const lines = rawEvent.split(/\r?\n/);
+    const eventName = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() || 'message';
+    const data = lines
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trim())
+        .join('\n');
+
+    if (!data) return { eventName, payload: null };
+
+    let payload;
+    try {
+        payload = JSON.parse(data);
+    } catch {
+        return { eventName, payload: null };
+    }
+
+    return { eventName, payload };
+}
+
+async function markAdminOrderSeen(orderId) {
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !orderId) return;
+
+    const button = document.querySelector(`[data-order-seen="${orderId}"]`);
+    if (button) button.disabled = true;
+
+    try {
+        const response = await fetch(`/api/orders/${orderId}/seen`, {
+            method: 'POST',
+            headers: authHeaders(false)
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.order) {
+            showToast(data.message || 'Không thể xác nhận đơn hàng.', 'error');
+            if (button) button.disabled = false;
             return;
         }
 
-        const orders = Array.isArray(data.orders) ? data.orders : [];
-        renderAdminOrders(orders);
-        renderAdminStats(orders);
+        adminOrders = adminOrders.map((order) => {
+            return Number(order.id) === Number(orderId) ? data.order : order;
+        });
+        renderAdminOrders(adminOrders);
     } catch {
-        adminOrdersMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
+        showToast('Không kết nối được server.', 'error');
+        if (button) button.disabled = false;
     }
+}
+
+async function updateAdminOrderFulfillment(orderId, nextStatus) {
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !orderId) return;
+
+    const button = document.querySelector(
+        `[data-order-id="${orderId}"][data-order-fulfillment="${nextStatus}"]`
+    );
+    if (button) button.disabled = true;
+
+    try {
+        const response = await fetch(`/api/orders/${orderId}/fulfillment`, {
+            method: 'PUT',
+            headers: authHeaders(true),
+            body: JSON.stringify({ status: nextStatus })
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.order) {
+            showToast(data.message || 'Không thể cập nhật trạng thái đơn hàng.', 'error');
+            if (button) button.disabled = false;
+            return;
+        }
+
+        adminOrders = adminOrders.map((order) => {
+            return Number(order.id) === Number(orderId) ? data.order : order;
+        });
+        renderAdminOrders(adminOrders);
+        showToast(
+            `Đã cập nhật: ${getOrderFulfillmentLabel(normalizeOrderFulfillmentStatus(data.order.fulfillmentStatus))}`,
+            'success'
+        );
+    } catch {
+        showToast('Không kết nối được server.', 'error');
+        if (button) button.disabled = false;
+    }
+}
+
+function renderAdminOrderBadge() {
+    if (!adminNewOrdersBadge) return;
+
+    const unreadCount = adminOrders.filter((order) => order.isNew).length;
+    adminNewOrdersBadge.hidden = unreadCount <= 0;
+    adminNewOrdersBadge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
 }
 
 function renderAdminOrders(orders) {
@@ -1350,10 +1825,11 @@ function renderAdminOrders(orders) {
     if (!orders.length) {
         adminOrdersBody.innerHTML = `
             <tr>
-                <td colspan="4">${escapeHtml(contentText('messages.orders.empty', 'Chưa có đơn hàng.'))}</td>
+                <td colspan="5">${escapeHtml(contentText('messages.orders.empty', 'Chưa có đơn hàng.'))}</td>
             </tr>
         `;
         adminOrdersMessage.textContent = '';
+        renderAdminOrderBadge();
         return;
     }
 
@@ -1373,12 +1849,26 @@ function renderAdminOrders(orders) {
                 <small>${size}${currency.format(Number(item.unitPrice) || 0)}</small>
             `;
         }).join('');
+        const newOrderBadge = order.isNew
+            ? '<span class="admin-order-new-badge"><i class="bi bi-bell-fill"></i> Mới</span>'
+            : '';
+        const seenButton = order.isNew
+            ? `<button type="button" class="admin-order-seen-button" data-order-seen="${Number(order.id)}">
+                <i class="bi bi-check2-circle"></i> Đã kiểm tra
+               </button>`
+            : '';
+        const fulfillmentStatus = normalizeOrderFulfillmentStatus(order.fulfillmentStatus);
+        const fulfillmentAction = getAdminFulfillmentAction(order.id, fulfillmentStatus);
 
         return `
-            <tr>
+            <tr class="${order.isNew ? 'admin-order-new' : ''}">
                 <td>
-                    <strong>${escapeHtml(order.orderId || '')}</strong>
+                    <div class="admin-order-code">
+                        <strong>${escapeHtml(order.orderId || '')}</strong>
+                        ${newOrderBadge}
+                    </div>
                     <small>${escapeHtml(order.status || '')}</small>
+                    ${seenButton}
                 </td>
                 <td>
                     <div class="admin-customer">
@@ -1389,11 +1879,42 @@ function renderAdminOrders(orders) {
                 <td>
                     <div class="admin-order-items">${itemRows}</div>
                 </td>
+                <td>
+                    <div class="admin-fulfillment">
+                        <span class="admin-fulfillment-status">${escapeHtml(getOrderFulfillmentLabel(fulfillmentStatus))}</span>
+                        ${fulfillmentAction}
+                    </div>
+                </td>
                 <td><strong>${currency.format(Number(order.amount) || 0)}</strong></td>
             </tr>
         `;
     }).join('');
     adminOrdersMessage.textContent = '';
+    renderAdminOrderBadge();
+}
+
+function getAdminFulfillmentAction(orderId, status) {
+    if (status === 'ORDERED') {
+        return `
+            <button type="button" data-order-id="${Number(orderId)}" data-order-fulfillment="PREPARING">
+                <i class="bi bi-box-seam"></i> Xác nhận & chuẩn bị
+            </button>
+        `;
+    }
+
+    if (status === 'PREPARING') {
+        return `
+            <button type="button" data-order-id="${Number(orderId)}" data-order-fulfillment="SHIPPING">
+                <i class="bi bi-truck"></i> Bắt đầu giao hàng
+            </button>
+        `;
+    }
+
+    if (status === 'SHIPPING') {
+        return '<small>Chờ người nhận xác nhận</small>';
+    }
+
+    return '<small><i class="bi bi-check-circle-fill"></i> Đơn đã hoàn tất</small>';
 }
 
 async function submitProfile(event) {

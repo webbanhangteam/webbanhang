@@ -434,7 +434,10 @@
             <div class="admin-tabs">
                 <button type="button" class="active" data-admin-tab="products"><i class="bi bi-box-seam"></i> Sản
                     phẩm</button>
-                <button type="button" data-admin-tab="orders"><i class="bi bi-receipt"></i> Đơn hàng</button>
+                <button type="button" data-admin-tab="orders">
+                    <i class="bi bi-receipt"></i> Đơn hàng
+                    <span id="adminNewOrdersBadge" class="admin-new-orders-badge" hidden>0</span>
+                </button>
             </div>
 
             <div class="admin-tab-content active" id="adminTabProducts">
@@ -524,6 +527,7 @@
                                     <th>Mã đơn</th>
                                     <th>Người đặt</th>
                                     <th>Sản phẩm</th>
+                                    <th>Trạng thái giao hàng</th>
                                     <th>Tổng tiền</th>
                                 </tr>
                             </thead>

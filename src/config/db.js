@@ -1,5 +1,6 @@
 require('dotenv').config();
 const mysql = require('mysql2/promise');
+const logger = require('../utils/logger');
 
 const dbName = process.env.DB_NAME || 'webbanhang';
 
@@ -67,6 +68,9 @@ async function initDatabase() {
       provider VARCHAR(30) NOT NULL,
       status VARCHAR(40) NOT NULL,
       stock_applied TINYINT(1) NOT NULL DEFAULT 0,
+      admin_seen_at TIMESTAMP NULL DEFAULT NULL,
+      fulfillment_status VARCHAR(40) NOT NULL DEFAULT 'ORDERED',
+      received_at TIMESTAMP NULL DEFAULT NULL,
       amount INT UNSIGNED NOT NULL,
       description VARCHAR(500) NOT NULL DEFAULT '',
       customer_username VARCHAR(80) NOT NULL DEFAULT '',
@@ -109,6 +113,30 @@ async function initDatabase() {
     'ALTER TABLE orders ADD COLUMN stock_applied TINYINT(1) NOT NULL DEFAULT 0 AFTER status'
   );
 
+  const addedAdminSeenAt = await ensureColumnExists(
+    'orders',
+    'admin_seen_at',
+    'ALTER TABLE orders ADD COLUMN admin_seen_at TIMESTAMP NULL DEFAULT NULL AFTER stock_applied'
+  );
+
+  if (addedAdminSeenAt) {
+    await pool.execute(
+      'UPDATE orders SET admin_seen_at = CURRENT_TIMESTAMP WHERE admin_seen_at IS NULL'
+    );
+  }
+
+  await ensureColumnExists(
+    'orders',
+    'fulfillment_status',
+    'ALTER TABLE orders ADD COLUMN fulfillment_status VARCHAR(40) NOT NULL DEFAULT \'ORDERED\' AFTER admin_seen_at'
+  );
+
+  await ensureColumnExists(
+    'orders',
+    'received_at',
+    'ALTER TABLE orders ADD COLUMN received_at TIMESTAMP NULL DEFAULT NULL AFTER fulfillment_status'
+  );
+
   await ensureColumnExists(
     'products',
     'total_stock',
@@ -125,6 +153,11 @@ async function initDatabase() {
   await ensureIndexExists('products', 'idx_products_section', 'ALTER TABLE products ADD INDEX idx_products_section (section)');
   await ensureIndexExists('orders', 'idx_orders_status', 'ALTER TABLE orders ADD INDEX idx_orders_status (status)');
   await ensureIndexExists('orders', 'idx_orders_provider', 'ALTER TABLE orders ADD INDEX idx_orders_provider (provider)');
+  await ensureIndexExists(
+    'orders',
+    'idx_orders_fulfillment_status',
+    'ALTER TABLE orders ADD INDEX idx_orders_fulfillment_status (fulfillment_status)'
+  );
 }
 
 async function ensureColumnExists(tableName, columnName, alterSql) {
@@ -137,7 +170,10 @@ async function ensureColumnExists(tableName, columnName, alterSql) {
 
   if (!count) {
     await pool.execute(alterSql);
+    return true;
   }
+
+  return false;
 }
 
 async function ensureIndexExists(tableName, indexName, alterSql) {
@@ -168,7 +204,7 @@ setInterval(async () => {
   try {
     await pool.execute('SELECT 1');
   } catch (err) {
-    console.error('DB health check failed:', err.message);
+    logger.error('database.health_check_failed', { error: err });
   }
 }, 60000).unref();
 

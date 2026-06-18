@@ -9,7 +9,7 @@
     "dev": "nodemon src/server.js",
     "tailwind:build": "tailwindcss -i ./input.css -o ./public/css/tailwind.css --minify",
     "tailwind:watch": "tailwindcss -i ./input.css -o ./public/css/tailwind.css --watch",
-    "check": "npm run tailwind:build && node --check src/server.js && node --check src/routes/auth.js && node --check src/routes/products.js && node --check src/middleware/adminMiddleware.js && node --check src/middleware/rateLimiter.js && node --check src/config/db.js && node --check public/js/script.js",
+    "check": "npm run tailwind:build && node --check src/server.js && node --check src/utils/logger.js && node --check src/routes/auth.js && node --check src/routes/products.js && node --check src/middleware/adminMiddleware.js && node --check src/middleware/rateLimiter.js && node --check src/config/db.js && node --check public/js/script.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",

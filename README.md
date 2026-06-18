@@ -135,6 +135,8 @@ DB_CONNECTION_LIMIT=10
 
 SESSION_MAX_AGE_MS=43200000
 MAX_BODY_SIZE=1048576
+LOG_LEVEL=info
+LOG_FILE=logs/server.log
 
 DEFAULT_ADMIN_USERNAME=admin
 DEFAULT_ADMIN_PASSWORD=change-this-admin-password
@@ -143,6 +145,14 @@ DEFAULT_USER_PASSWORD=StrongPass1
 ```
 
 Khi deploy, nen doi `DEFAULT_ADMIN_PASSWORD`. Server se canh bao neu van dung mat khau admin mac dinh.
+
+`LOG_LEVEL` ho tro `debug`, `info`, `warn`, `error`. `LOG_FILE` la noi luu log JSON;
+mac dinh la `logs/server.log`. Server ghi log cho request, loi he thong, khoi dong/tat
+server va cac su kien tao/cap nhat trang thai don hang.
+
+Admin nhan don moi ngay qua ket noi realtime. Moi don moi co nhan `Moi` va nut
+`Da kiem tra`; thong bao chi duoc xoa sau khi Admin bam nut nay. Trang thai da xem
+duoc luu trong cot `orders.admin_seen_at`, nen van duoc giu sau khi tai lai trang.
 
 Neu dung MoMo:
 
@@ -279,6 +289,9 @@ MoMo, ZaloPay va COD deu yeu cau user dang nhap truoc khi tao don.
 ```txt
 GET /api/orders/me    Dang nhap
 GET /api/orders       Admin token
+GET /api/orders/me/events              Dang nhap, realtime trang thai don
+PUT /api/orders/:id/fulfillment        Admin token
+POST /api/orders/:id/received           Chu don hang
 ```
 
 ## Database
@@ -294,7 +307,10 @@ order_items
 
 Bang `products` luu ten, danh muc, gia, phan tram sale, anh, section, sizes, stock theo size va `total_stock` cho san pham khong co size.
 
-Bang `orders` luu ma don, user, provider, status, amount, thong tin khach hang, payload cong thanh toan va co `stock_applied` de dam bao moi don chi tru ton kho mot lan.
+Bang `orders` luu ma don, user, provider, trang thai thanh toan, trang thai giao hang,
+thong tin khach hang, payload cong thanh toan va co `stock_applied` de dam bao moi don
+chi tru ton kho mot lan. `fulfillment_status` co cac gia tri `ORDERED`, `PREPARING`,
+`SHIPPING`, `DELIVERED`; `received_at` duoc ghi khi chu don xac nhan da nhan hang.
 
 Bang `order_items` luu tung san pham trong don hang.
 

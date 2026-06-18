@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const db = require('./config/db');
+const logger = require('./utils/logger');
 const { ensureUserDataFile, handleAuthRoute, getUserByUsername } = require('./routes/auth');
 const {
   ensureProductsDataFile,
@@ -23,7 +24,10 @@ const port = process.env.PORT || 3000;
 const host = process.env.HOST || '0.0.0.0';
 const publicBaseUrl = (process.env.PUBLIC_BASE_URL || process.env.BASE_URL || `http://localhost:${port}`).replace(/\/+$/, '');
 const sessions = new Map();
+const adminOrderEventClients = new Set();
+const userOrderEventClients = new Set();
 const userDataFile = path.join(root, 'data', 'DATA.txt');
+const fulfillmentStatuses = ['ORDERED', 'PREPARING', 'SHIPPING', 'DELIVERED'];
 
 const productsDataFile = path.join(root, 'data', 'products.json');
 const maxBodySize = parsePositiveNumber(process.env.MAX_BODY_SIZE, 1024 * 1024);
@@ -93,6 +97,23 @@ const zalopayConfig = {
 };
 
 const server = http.createServer(async (req, res) => {
+  const requestId = getRequestId(req);
+  const startedAt = process.hrtime.bigint();
+
+  req.requestId = requestId;
+  res.setHeader('X-Request-Id', requestId);
+  res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    logger.info('http.request', {
+      requestId,
+      method: req.method,
+      path: getRequestPath(req.url),
+      statusCode: res.statusCode,
+      durationMs: Number(durationMs.toFixed(2)),
+      ip: getRequestIp(req)
+    });
+  });
+
   try {
     res._request = req;
     const requestUrl = new URL(req.url, `http://${req.headers.host || `localhost:${port}`}`);
@@ -104,8 +125,17 @@ const server = http.createServer(async (req, res) => {
 
     serveStatic(requestUrl.pathname, req, res);
   } catch (err) {
-    console.error('Request error:', err);
-    sendJson(res, 500, { ok: false, message: 'Loi may chu noi bo' });
+    logger.error('http.request_error', {
+      requestId,
+      method: req.method,
+      path: getRequestPath(req.url),
+      error: err
+    });
+    if (!res.headersSent) {
+      sendJson(res, 500, { ok: false, message: 'Loi may chu noi bo' });
+    } else {
+      res.end();
+    }
   }
 });
 
@@ -214,13 +244,109 @@ async function handleApi(req, res, requestUrl) {
     return;
   }
 
+  if (req.method === 'GET' && routeUrl.pathname === '/api/orders/me/events') {
+    const user = getSessionFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
+      return;
+    }
+
+    openUserOrderEventStream(req, res, user);
+    return;
+  }
+
+  if (req.method === 'GET' && routeUrl.pathname === '/api/admin/order-events') {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    openAdminOrderEventStream(req, res);
+    return;
+  }
+
+  const seenOrderMatch = routeUrl.pathname.match(/^\/api\/orders\/(\d+)\/seen$/);
+  if (req.method === 'POST' && seenOrderMatch) {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    const order = await markOrderSeen(Number(seenOrderMatch[1]));
+    if (!order) {
+      sendJson(res, 404, { ok: false, message: 'Khong tim thay don hang' });
+      return;
+    }
+
+    broadcastAdminOrderEvent('order.seen', {
+      id: order.id,
+      orderId: order.orderId,
+      adminSeenAt: order.adminSeenAt
+    });
+    logger.info('order.admin_seen', {
+      requestId: req.requestId,
+      orderId: order.orderId,
+      orderDbId: order.id
+    });
+    sendJson(res, 200, { ok: true, order });
+    return;
+  }
+
+  const fulfillmentOrderMatch = routeUrl.pathname.match(/^\/api\/orders\/(\d+)\/fulfillment$/);
+  if (req.method === 'PUT' && fulfillmentOrderMatch) {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    const body = await readRequestBodySafely(req, res);
+    if (!body) return;
+
+    const result = await updateOrderFulfillmentByAdmin(
+      Number(fulfillmentOrderMatch[1]),
+      body.status
+    );
+    if (!result.ok) {
+      sendJson(res, result.statusCode, { ok: false, message: result.message });
+      return;
+    }
+
+    notifyOrderFulfillmentChanged(result.order, req.requestId, 'admin');
+    sendJson(res, 200, { ok: true, order: result.order });
+    return;
+  }
+
+  const receivedOrderMatch = routeUrl.pathname.match(/^\/api\/orders\/(\d+)\/received$/);
+  if (req.method === 'POST' && receivedOrderMatch) {
+    const user = getSessionFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
+      return;
+    }
+
+    const result = await confirmOrderReceived(Number(receivedOrderMatch[1]), user.id);
+    if (!result.ok) {
+      sendJson(res, result.statusCode, { ok: false, message: result.message });
+      return;
+    }
+
+    notifyOrderFulfillmentChanged(result.order, req.requestId, 'customer');
+    sendJson(res, 200, { ok: true, order: result.order });
+    return;
+  }
+
   if (req.method === 'GET' && routeUrl.pathname === '/api/orders') {
     if (!isAdminRequest(req, getSessionFromRequest)) {
       sendForbidden(res, sendJson);
       return;
     }
 
-    sendJson(res, 200, { ok: true, orders: await getSalesHistory() });
+    const afterId = parseNonNegativeInteger(routeUrl.searchParams.get('afterId'));
+    const orders = afterId === null
+      ? await getSalesHistory()
+      : await getSalesHistoryAfterId(afterId);
+
+    sendJson(res, 200, { ok: true, orders });
     return;
   }
 
@@ -302,7 +428,10 @@ async function createMomoPayment(req, res) {
     lang: 'vi'
   };
 
-  await createLocalOrder('momo', orderId, order, orderInfo, toOrderCustomer(user), { status: 'CREATED' });
+  await createLocalOrder('momo', orderId, order, orderInfo, toOrderCustomer(user), {
+    status: 'CREATED',
+    requestId: req.requestId
+  });
 
   try {
     const momoResponse = await postJson(momoConfig.endpoint, payload);
@@ -311,6 +440,12 @@ async function createMomoPayment(req, res) {
     sendJson(res, 200, { ok: true, provider: 'momo', orderId, paymentUrl: momoResponse.payUrl, momo: momoResponse });
   } catch (err) {
     await updateOrderGatewayResponse(orderId, 'FAILED', { error: err.message });
+    logger.error('payment.gateway_request_failed', {
+      requestId: req.requestId,
+      provider: 'momo',
+      orderId,
+      error: err
+    });
     sendJson(res, 502, { ok: false, message: 'Khong tao duoc thanh toan MoMo', error: err.message });
   }
 }
@@ -393,7 +528,10 @@ async function createZaloPayPayment(req, res) {
     mac: hmacSha256(zalopayConfig.key1, raw)
   };
 
-  await createLocalOrder('zalopay', appTransId, order, description, toOrderCustomer(user), { status: 'CREATED' });
+  await createLocalOrder('zalopay', appTransId, order, description, toOrderCustomer(user), {
+    status: 'CREATED',
+    requestId: req.requestId
+  });
 
   try {
     const zaloResponse = await postJson(zalopayConfig.createUrl, payload);
@@ -408,6 +546,12 @@ async function createZaloPayPayment(req, res) {
     });
   } catch (err) {
     await updateOrderGatewayResponse(appTransId, 'FAILED', { error: err.message });
+    logger.error('payment.gateway_request_failed', {
+      requestId: req.requestId,
+      provider: 'zalopay',
+      orderId: appTransId,
+      error: err
+    });
     sendJson(res, 502, { ok: false, message: 'Khong tao duoc thanh toan ZaloPay', error: err.message });
   }
 }
@@ -461,6 +605,12 @@ async function queryZaloPayStatus(req, res) {
     const response = await postForm(zalopayConfig.queryUrl, params);
     sendJson(res, 200, { ok: true, zalopay: response });
   } catch (err) {
+    logger.error('payment.status_query_failed', {
+      requestId: req.requestId,
+      provider: 'zalopay',
+      orderId: appTransId,
+      error: err
+    });
     sendJson(res, 502, { ok: false, message: 'Khong kiem tra duoc trang thai ZaloPay', error: err.message });
   }
 }
@@ -499,9 +649,17 @@ async function createCodOrder(req, res) {
   try {
     savedOrder = await createLocalOrder('cod', orderId, order, description, toOrderCustomer(user), {
       status: 'COD_PENDING',
-      applyStock: true
+      applyStock: true,
+      requestId: req.requestId
     });
   } catch (err) {
+    logger.warn('order.create_failed', {
+      requestId: req.requestId,
+      provider: 'cod',
+      orderId,
+      userId: user.id || null,
+      error: err.message
+    });
     sendJson(res, 400, { ok: false, message: err.message || 'Khong tao duoc don COD' });
     return;
   }
@@ -740,6 +898,131 @@ function request(url, body, headers) {
     req.write(body);
     req.end();
   });
+}
+
+function openAdminOrderEventStream(req, res) {
+  const headers = {
+    ...securityHeaders,
+    ...getCorsHeaders(req),
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  };
+
+  res.writeHead(200, headers);
+  res.write('retry: 3000\n\n');
+  writeServerSentEvent(res, 'connected', { time: new Date().toISOString() });
+
+  const client = { req, res, heartbeat: null };
+  const cleanup = () => {
+    if (client.heartbeat) clearInterval(client.heartbeat);
+    adminOrderEventClients.delete(client);
+  };
+
+  client.heartbeat = setInterval(() => {
+    const user = getSessionFromRequest(req);
+    if (!user || user.role !== 'Admin') {
+      cleanup();
+      res.end();
+      return;
+    }
+
+    res.write(`: heartbeat ${Date.now()}\n\n`);
+  }, 20000);
+  client.heartbeat.unref();
+
+  adminOrderEventClients.add(client);
+  req.on('close', cleanup);
+  res.on('error', cleanup);
+}
+
+function openUserOrderEventStream(req, res, user) {
+  const headers = {
+    ...securityHeaders,
+    ...getCorsHeaders(req),
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  };
+
+  res.writeHead(200, headers);
+  res.write('retry: 3000\n\n');
+  writeServerSentEvent(res, 'connected', { time: new Date().toISOString() });
+
+  const client = {
+    req,
+    res,
+    userId: Number(user.id),
+    heartbeat: null
+  };
+  const cleanup = () => {
+    if (client.heartbeat) clearInterval(client.heartbeat);
+    userOrderEventClients.delete(client);
+  };
+
+  client.heartbeat = setInterval(() => {
+    const sessionUser = getSessionFromRequest(req);
+    if (!sessionUser || Number(sessionUser.id) !== client.userId) {
+      cleanup();
+      res.end();
+      return;
+    }
+
+    res.write(`: heartbeat ${Date.now()}\n\n`);
+  }, 20000);
+  client.heartbeat.unref();
+
+  userOrderEventClients.add(client);
+  req.on('close', cleanup);
+  res.on('error', cleanup);
+}
+
+function broadcastAdminOrderEvent(event, payload) {
+  for (const client of adminOrderEventClients) {
+    try {
+      writeServerSentEvent(client.res, event, payload);
+    } catch {
+      if (client.heartbeat) clearInterval(client.heartbeat);
+      adminOrderEventClients.delete(client);
+    }
+  }
+}
+
+function broadcastUserOrderEvent(userId, event, payload) {
+  if (!userId) return;
+
+  for (const client of userOrderEventClients) {
+    if (Number(client.userId) !== Number(userId)) continue;
+
+    try {
+      writeServerSentEvent(client.res, event, payload);
+    } catch {
+      if (client.heartbeat) clearInterval(client.heartbeat);
+      userOrderEventClients.delete(client);
+    }
+  }
+}
+
+function writeServerSentEvent(res, event, payload) {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+}
+
+function closeAdminOrderEventStreams() {
+  for (const client of adminOrderEventClients) {
+    if (client.heartbeat) clearInterval(client.heartbeat);
+    client.res.end();
+  }
+  adminOrderEventClients.clear();
+}
+
+function closeUserOrderEventStreams() {
+  for (const client of userOrderEventClients) {
+    if (client.heartbeat) clearInterval(client.heartbeat);
+    client.res.end();
+  }
+  userOrderEventClients.clear();
 }
 
 function sendJson(res, statusCode, payload) {
@@ -1053,6 +1336,7 @@ async function createLocalOrder(provider, orderId, order, description, user, opt
   const customer = user || {};
   const status = options.status || 'CREATED';
   let stockApplied = false;
+  let orderDbId = null;
 
   try {
     await connection.beginTransaction();
@@ -1074,6 +1358,7 @@ async function createLocalOrder(provider, orderId, order, description, user, opt
         customer.address || ''
       ]
     );
+    orderDbId = Number(result.insertId);
 
     for (const item of order.items) {
       await connection.execute(
@@ -1104,7 +1389,8 @@ async function createLocalOrder(provider, orderId, order, description, user, opt
     connection.release();
   }
 
-  return {
+  const savedOrder = {
+    id: orderDbId,
     provider,
     orderId,
     amount: order.amount,
@@ -1113,8 +1399,43 @@ async function createLocalOrder(provider, orderId, order, description, user, opt
     user: user || null,
     status,
     stockApplied,
+    isNew: true,
+    adminSeenAt: null,
+    fulfillmentStatus: 'ORDERED',
+    receivedAt: null,
     createdAt: new Date().toISOString()
   };
+
+  logger.info('order.created', {
+    requestId: options.requestId || null,
+    orderId,
+    provider,
+    status,
+    amount: order.amount,
+    itemCount: order.items.length,
+    userId: customer.id || null,
+    username: customer.username || '',
+    stockApplied
+  });
+
+  broadcastAdminOrderEvent('order.created', {
+    id: savedOrder.id,
+    orderId: savedOrder.orderId,
+    provider: savedOrder.provider,
+    status: savedOrder.status,
+    stockApplied: savedOrder.stockApplied,
+    amount: savedOrder.amount,
+    description: savedOrder.description,
+    customer: savedOrder.user,
+    items: savedOrder.items,
+    isNew: true,
+    adminSeenAt: null,
+    fulfillmentStatus: savedOrder.fulfillmentStatus,
+    receivedAt: null,
+    createdAt: savedOrder.createdAt
+  });
+
+  return savedOrder;
 }
 
 async function updateOrderGatewayResponse(orderId, status, gatewayResponse) {
@@ -1124,6 +1445,12 @@ async function updateOrderGatewayResponse(orderId, status, gatewayResponse) {
     'UPDATE orders SET status = ?, gateway_response = ? WHERE order_code = ?',
     [status, JSON.stringify(gatewayResponse || {}), orderId]
   );
+
+  logger.info('order.status_changed', {
+    orderId,
+    status,
+    source: 'gateway_create'
+  });
 }
 
 async function updateOrderFromGateway(orderId, success, gatewayPayload) {
@@ -1134,6 +1461,11 @@ async function updateOrderFromGateway(orderId, success, gatewayPayload) {
       'UPDATE orders SET status = ?, gateway_payload = ? WHERE order_code = ?',
       ['FAILED', JSON.stringify(gatewayPayload || {}), orderId]
     );
+    logger.warn('order.status_changed', {
+      orderId,
+      status: 'FAILED',
+      source: 'gateway_callback'
+    });
     return;
   }
 
@@ -1159,12 +1491,22 @@ async function updateOrderFromGateway(orderId, success, gatewayPayload) {
       ['PAID', JSON.stringify(gatewayPayload || {}), rows[0].id]
     );
     await connection.commit();
+    logger.info('order.status_changed', {
+      orderId,
+      status: 'PAID',
+      source: 'gateway_callback'
+    });
   } catch (err) {
     await connection.rollback();
     await db.execute(
       'UPDATE orders SET status = ?, gateway_payload = ? WHERE order_code = ?',
       ['PAID_STOCK_ERROR', JSON.stringify({ gatewayPayload, stockError: err.message }), orderId]
     );
+    logger.error('order.stock_update_failed', {
+      orderId,
+      status: 'PAID_STOCK_ERROR',
+      error: err
+    });
     throw err;
   } finally {
     connection.release();
@@ -1254,6 +1596,165 @@ async function getSalesHistory() {
   return fetchOrders('', []);
 }
 
+async function getSalesHistoryAfterId(afterId) {
+  return fetchOrders('WHERE o.id > ?', [Number(afterId)]);
+}
+
+async function markOrderSeen(orderDbId) {
+  const [result] = await db.execute(
+    `UPDATE orders
+     SET admin_seen_at = COALESCE(admin_seen_at, CURRENT_TIMESTAMP)
+     WHERE id = ?`,
+    [Number(orderDbId)]
+  );
+
+  if (!result.affectedRows) return null;
+
+  const orders = await fetchOrders('WHERE o.id = ?', [Number(orderDbId)]);
+  return orders[0] || null;
+}
+
+async function updateOrderFulfillmentByAdmin(orderDbId, requestedStatus) {
+  const nextStatus = normalizeFulfillmentStatus(requestedStatus);
+  if (!nextStatus || nextStatus === 'DELIVERED') {
+    return {
+      ok: false,
+      statusCode: 400,
+      message: 'Trang thai giao hang khong hop le'
+    };
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      `SELECT id, order_code, user_id, status, fulfillment_status
+       FROM orders
+       WHERE id = ?
+       FOR UPDATE`,
+      [Number(orderDbId)]
+    );
+
+    if (!rows.length) {
+      await connection.rollback();
+      return { ok: false, statusCode: 404, message: 'Khong tim thay don hang' };
+    }
+
+    const order = rows[0];
+    if (['FAILED', 'PAID_STOCK_ERROR'].includes(String(order.status))) {
+      await connection.rollback();
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Khong the giao don thanh toan that bai'
+      };
+    }
+
+    const currentStatus = normalizeFulfillmentStatus(order.fulfillment_status) || 'ORDERED';
+    const currentIndex = fulfillmentStatuses.indexOf(currentStatus);
+    const nextIndex = fulfillmentStatuses.indexOf(nextStatus);
+
+    if (nextIndex < currentIndex || nextIndex > currentIndex + 1) {
+      await connection.rollback();
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Can cap nhat trang thai don hang theo dung thu tu'
+      };
+    }
+
+    if (nextStatus !== currentStatus) {
+      await connection.execute(
+        'UPDATE orders SET fulfillment_status = ? WHERE id = ?',
+        [nextStatus, Number(orderDbId)]
+      );
+    }
+
+    await connection.commit();
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+
+  const orders = await fetchOrders('WHERE o.id = ?', [Number(orderDbId)]);
+  return { ok: true, order: orders[0] };
+}
+
+async function confirmOrderReceived(orderDbId, userId) {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      `SELECT id, user_id, fulfillment_status
+       FROM orders
+       WHERE id = ?
+       FOR UPDATE`,
+      [Number(orderDbId)]
+    );
+
+    if (!rows.length || Number(rows[0].user_id) !== Number(userId)) {
+      await connection.rollback();
+      return { ok: false, statusCode: 404, message: 'Khong tim thay don hang' };
+    }
+
+    const currentStatus = normalizeFulfillmentStatus(rows[0].fulfillment_status) || 'ORDERED';
+    if (currentStatus === 'DELIVERED') {
+      await connection.commit();
+    } else if (currentStatus !== 'SHIPPING') {
+      await connection.rollback();
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Chi co the xac nhan khi don hang dang giao'
+      };
+    } else {
+      await connection.execute(
+        `UPDATE orders
+         SET fulfillment_status = 'DELIVERED', received_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [Number(orderDbId)]
+      );
+      await connection.commit();
+    }
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+
+  const orders = await fetchOrders('WHERE o.id = ?', [Number(orderDbId)]);
+  return { ok: true, order: orders[0] };
+}
+
+function notifyOrderFulfillmentChanged(order, requestId, actor) {
+  const payload = {
+    id: order.id,
+    orderId: order.orderId,
+    fulfillmentStatus: order.fulfillmentStatus,
+    receivedAt: order.receivedAt,
+    updatedAt: order.updatedAt,
+    actor
+  };
+
+  broadcastAdminOrderEvent('order.fulfillment_changed', payload);
+  broadcastUserOrderEvent(order.userId, 'order.fulfillment_changed', payload);
+  logger.info('order.fulfillment_changed', {
+    requestId,
+    orderId: order.orderId,
+    orderDbId: order.id,
+    fulfillmentStatus: order.fulfillmentStatus,
+    actor
+  });
+}
+
+function normalizeFulfillmentStatus(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return fulfillmentStatuses.includes(normalized) ? normalized : null;
+}
+
 async function fetchOrders(whereClause, params) {
   const [rows] = await db.execute(
     `SELECT
@@ -1263,6 +1764,9 @@ async function fetchOrders(whereClause, params) {
        o.provider,
        o.status,
        o.stock_applied,
+       o.admin_seen_at,
+       o.fulfillment_status,
+       o.received_at,
        o.amount,
        o.description,
        o.customer_username,
@@ -1294,9 +1798,14 @@ async function fetchOrders(whereClause, params) {
       ordersById.set(row.id, {
         id: Number(row.id),
         orderId: row.order_code,
+        userId: row.user_id === null ? null : Number(row.user_id),
         provider: row.provider,
         status: row.status,
         stockApplied: Boolean(row.stock_applied),
+        isNew: !row.admin_seen_at,
+        adminSeenAt: row.admin_seen_at,
+        fulfillmentStatus: normalizeFulfillmentStatus(row.fulfillment_status) || 'ORDERED',
+        receivedAt: row.received_at,
         amount: Number(row.amount),
         description: row.description || '',
         customer: {
@@ -1350,6 +1859,31 @@ function parsePositiveNumber(value, fallback) {
   return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
+function parseNonNegativeInteger(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 ? number : null;
+}
+
+function getRequestId(req) {
+  const suppliedId = String(req.headers['x-request-id'] || '').trim();
+  if (/^[a-zA-Z0-9._-]{1,100}$/.test(suppliedId)) return suppliedId;
+  return crypto.randomUUID();
+}
+
+function getRequestPath(url) {
+  try {
+    return new URL(url || '/', 'http://localhost').pathname;
+  } catch {
+    return String(url || '/').split('?')[0];
+  }
+}
+
+function getRequestIp(req) {
+  const forwardedFor = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwardedFor || req.socket.remoteAddress || 'unknown';
+}
+
 function escapeHtml(value) {
   return value
     .replace(/&/g, '&amp;')
@@ -1366,33 +1900,43 @@ async function startServer() {
   await ensureProductsDataFile(productsDataFile);
 
   server.listen(port, host, () => {
-    console.log(`Server chay tai http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`);
-    console.log(`Public URL: ${publicBaseUrl}`);
+    logger.info('server.started', {
+      host,
+      port: Number(port),
+      localUrl: `http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`,
+      publicUrl: publicBaseUrl,
+      environment: process.env.NODE_ENV || 'development',
+      logFile: logger.logFile
+    });
   });
 }
 
 function warnOnUnsafeDefaults() {
   if (process.env.DEFAULT_ADMIN_PASSWORD === defaultAdminPassword) {
-    console.warn('CANH BAO: Dang dung mat khau admin mac dinh. Vui long doi DEFAULT_ADMIN_PASSWORD trong .env');
+    logger.warn('security.default_admin_password', {
+      message: 'Dang dung mat khau admin mac dinh. Vui long doi DEFAULT_ADMIN_PASSWORD trong .env'
+    });
   }
 }
 
 async function shutdown(signal) {
-  console.log(`${signal} received. Shutting down gracefully...`);
+  logger.info('server.shutdown_started', { signal });
+  closeAdminOrderEventStreams();
+  closeUserOrderEventStreams();
 
   server.close(async () => {
     try {
       await db.end();
     } catch (err) {
-      console.error('Khong dong duoc ket noi DB:', err.message);
+      logger.error('database.close_failed', { error: err });
     }
 
-    console.log('Server closed.');
+    logger.info('server.stopped', { signal });
     process.exit(0);
   });
 
   setTimeout(() => {
-    console.error('Force shutdown after timeout.');
+    logger.error('server.shutdown_timeout', { signal });
     process.exit(1);
   }, 10000).unref();
 }
@@ -1401,6 +1945,6 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
 startServer().catch((err) => {
-  console.error('Khong khoi dong duoc server:', err);
+  logger.error('server.start_failed', { error: err });
   process.exit(1);
 });
