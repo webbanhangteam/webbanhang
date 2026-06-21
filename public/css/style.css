@@ -219,6 +219,27 @@ a {
     text-transform: uppercase;
 }
 
+.mobile-menu .menu-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0;
+    color: var(--ink);
+    text-decoration: none;
+}
+
+.mobile-menu .menu-brand:hover {
+    padding-left: 0;
+    color: var(--ink);
+    background: transparent;
+}
+
+.mobile-menu .menu-brand img {
+    width: 48px;
+    height: 48px;
+    object-fit: contain;
+}
+
 .mobile-menu .offcanvas-body {
     display: flex;
     flex-direction: column;
@@ -775,7 +796,7 @@ a {
     align-items: start;
 }
 
-.detail-gallery > img {
+.detail-gallery>img {
     width: 100%;
     aspect-ratio: 1 / 0.72;
     border-radius: var(--radius);
@@ -1461,7 +1482,7 @@ a {
     display: none;
 }
 
-.order-progress-step > span {
+.order-progress-step>span {
     position: relative;
     z-index: 1;
     display: grid;
@@ -1491,14 +1512,14 @@ a {
     background: #22c55e;
 }
 
-.order-progress-step.completed > span,
-.order-progress-step.active > span {
+.order-progress-step.completed>span,
+.order-progress-step.active>span {
     border-color: #22c55e;
     color: white;
     background: #22c55e;
 }
 
-.order-progress-step.active > span {
+.order-progress-step.active>span {
     box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.15);
 }
 
@@ -1675,7 +1696,7 @@ a {
     border-top: 1px solid var(--line);
 }
 
-.drawer-summary > div {
+.drawer-summary>div {
     display: flex;
     justify-content: space-between;
     gap: 18px;
@@ -2462,6 +2483,7 @@ a {
 }
 
 @media (max-width: 767.98px) {
+
     .hero-copy h1,
     .hero-copy h2 {
         font-size: clamp(2.7rem, 14vw, 4.5rem);
