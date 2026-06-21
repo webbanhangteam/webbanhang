@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phương thức thanh toán | Shop Anh Thuận</title>
+
+<style>
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+}
+
+body{
+    font-family:'Segoe UI',sans-serif;
+    background:#f5f5f5;
+    color:#333;
+}
+
+.hero{
+    background:#111;
+    color:white;
+    text-align:center;
+    padding:80px 20px;
+}
+
+.hero h1{
+    font-size:48px;
+    margin-bottom:10px;
+}
+
+.breadcrumb{
+    max-width:1300px;
+    margin:20px auto;
+    padding:0 20px;
+    color:#777;
+}
+
+.breadcrumb a{
+    text-decoration:none;
+    color:#111;
+}
+
+.wrapper{
+    max-width:1300px;
+    margin:auto;
+    padding:0 20px 50px;
+    display:grid;
+    grid-template-columns:280px 1fr;
+    gap:30px;
+}
+
+.sidebar{
+    background:white;
+    border-radius:10px;
+    padding:25px;
+    height:fit-content;
+    box-shadow:0 5px 15px rgba(0,0,0,.05);
+}
+
+.sidebar h3{
+    margin-bottom:20px;
+}
+
+.sidebar ul{
+    list-style:none;
+}
+
+.sidebar li{
+    margin-bottom:12px;
+}
+
+.sidebar a{
+    text-decoration:none;
+    color:#333;
+}
+
+.content{
+    background:white;
+    padding:40px;
+    border-radius:10px;
+    box-shadow:0 5px 15px rgba(0,0,0,.05);
+}
+
+.content section{
+    margin-bottom:45px;
+}
+
+.content h2{
+    margin-bottom:15px;
+    border-left:4px solid #111;
+    padding-left:12px;
+}
+
+.content p{
+    line-height:1.9;
+    margin-bottom:15px;
+}
+
+.back-btn{
+    display:inline-block;
+    margin-top:30px;
+    background:#111;
+    color:white;
+    text-decoration:none;
+    padding:12px 25px;
+    border-radius:6px;
+}
+
+@media(max-width:900px){
+    .wrapper{
+        grid-template-columns:1fr;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<div class="hero">
+    <h1>Phương thức thanh toán</h1>
+    <p>Shop Anh Thuận</p>
+</div>
+
+<div class="breadcrumb">
+    <a href="/">Trang chủ</a> /
+    <span>Phương thức thanh toán</span>
+</div>
+
+<div class="wrapper">
+
+    <aside class="sidebar">
+        <h3>Mục lục</h3>
+
+        <ul>
+            <li><a href="#1">1. Thanh toán tiền mặt</a></li>
+            <li><a href="#2">2. Chuyển khoản ngân hàng</a></li>
+            <li><a href="#3">3. Ví điện tử</a></li>
+            <li><a href="#4">4. Thẻ tín dụng/Ghi nợ</a></li>
+            <li><a href="#5">5. Thanh toán kỳ hạn</a></li>
+            <li><a href="#6">6. Bảo mật giao dịch</a></li>
+            <li><a href="#7">7. Hoàn lại tiền</a></li>
+            <li><a href="#8">8. Vấn đề thường gặp</a></li>
+            <li><a href="#9">9. Hỗ trợ thanh toán</a></li>
+        </ul>
+    </aside>
+
+    <main class="content">
+
+        <section id="1">
+            <h2>1. Thanh toán tiền mặt khi nhận hàng (COD)</h2>
+            <p>
+                Đây là phương thức thanh toán được nhiều khách hàng lựa chọn nhất. Quý khách sẽ thanh toán toàn bộ số tiền khi nhân viên giao hàng đến nhà.
+                Phương thức này không yêu cầu cung cấp thông tin tài khoản ngân hàng, vì vậy rất an toàn.
+            </p>
+            <p>
+                Khi thanh toán tiền mặt, vui lòng chuẩn bị số tiền chính xác theo đơn hàng. Nhân viên giao hàng sẽ kiểm tra sản phẩm trước khi nhận tiền.
+                Nếu quý khách không có tiền mặt, vui lòng liên hệ trước để sắp xếp lại phương thức thanh toán.
+            </p>
+        </section>
+
+        <section id="2">
+            <h2>2. Chuyển khoản ngân hàng</h2>
+            <p>
+                Quý khách có thể chuyển tiền trực tiếp vào tài khoản ngân hàng của Shop Anh Thuận. Phương thức này lý tưởng cho những đơn hàng có giá trị cao hoặc khi mua số lượng lớn.
+            </p>
+            <p>
+                Thông tin chuyển khoản:<br>
+                Chủ tài khoản: Shop Anh Thuận<br>
+                Ngân hàng: Ngân hàng Ngoại thương Việt Nam (Vietcombank)<br>
+                Số tài khoản: 1234567890<br>
+                Chi nhánh: Hồ Chí Minh
+            </p>
+            <p>
+                Lưu ý: Vui lòng ghi rõ nội dung chuyển khoản là "Thanh toán đơn hàng" kèm theo số đơn hàng của quý khách để chúng tôi dễ dàng xác nhận thanh toán.
+            </p>
+        </section>
+
+        <section id="3">
+            <h2>3. Thanh toán qua ví điện tử</h2>
+            <p>
+                Shop Anh Thuận hỗ trợ thanh toán qua các ví điện tử phổ biến như Momo, ZaloPay, AirPay và eWallet.
+                Phương thức này nhanh chóng, thuận tiện và an toàn, giúp tiết kiệm thời gian thanh toán.
+            </p>
+            <p>
+                Cách thanh toán: Quý khách chọn phương thức ví điện tử tại trang thanh toán, hệ thống sẽ chuyển hướng đến trang của ví điện tử.
+                Sau đó, quý khách nhập thông tin ví của mình và xác nhận giao dịch. Giao dịch sẽ hoàn tất trong vài giây.
+            </p>
+        </section>
+
+        <section id="4">
+            <h2>4. Thanh toán bằng thẻ tín dụng/Ghi nợ</h2>
+            <p>
+                Quý khách có thể thanh toán bằng thẻ tín dụng hoặc thẻ ghi nợ (Visa, Mastercard, JCB) của bất kỳ ngân hàng nào.
+                Phương thức này được bảo vệ bởi hệ thống mã hoá 3D Secure, đảm bảo an toàn cho giao dịch của quý khách.
+            </p>
+            <p>
+                Cách thanh toán: Quý khách chọn "Thanh toán bằng thẻ" tại trang thanh toán, sau đó điền các thông tin: số thẻ, tên chủ thẻ, ngày hết hạn và mã CVV.
+                Hệ thống sẽ xác minh thông tin và hoàn tất giao dịch.
+            </p>
+        </section>
+
+        <section id="5">
+            <h2>5. Thanh toán kỳ hạn (Mua trước - Trả sau)</h2>
+            <p>
+                Đối với các khách hàng thân thiết hoặc đơn hàng có giá trị cao, Shop Anh Thuận cung cấp dịch vụ mua trước - trả sau.
+                Quý khách có thể thanh toán bằng nhiều lần theo thỏa thuận với bộ phận kinh doanh.
+            </p>
+            <p>
+                Điều kiện áp dụng: Đơn hàng từ 5 triệu đồng trở lên; khách hàng đã mua hàng từ 2 lần trở lên; thông tin xác thực và có khả năng thanh toán.
+                Vui lòng liên hệ trực tiếp với bộ phận bán hàng để thảo luận chi tiết.
+            </p>
+        </section>
+
+        <section id="6">
+            <h2>6. Bảo mật giao dịch</h2>
+            <p>
+                Shop Anh Thuận sử dụng công nghệ mã hoá SSL 256-bit, một tiêu chuẩn bảo mật quốc tế để bảo vệ thông tin thanh toán của quý khách.
+                Tất cả dữ liệu được truyền tải an toàn và không được lưu trữ trên máy chủ của chúng tôi.
+            </p>
+            <p>
+                Chúng tôi không bao giờ yêu cầu quý khách cung cấp mã OTP, mã CVV hoặc thông tin ngân hàng qua email, điện thoại hoặc tin nhắn.
+                Vui lòng cảnh báo ngay nếu bạn nhận được các yêu cầu như vậy.
+            </p>
+        </section>
+
+        <section id="7">
+            <h2>7. Hoàn lại tiền</h2>
+            <p>
+                Nếu quý khách yêu cầu hủy đơn hàng trước khi giao, chúng tôi sẽ hoàn lại toàn bộ số tiền đã thanh toán.
+                Tiền hoàn lại sẽ được chuyển về tài khoản nguồn hoặc ví điện tử trong vòng 3-5 ngày làm việc.
+            </p>
+            <p>
+                Với các đơn hàng đã giao, chính sách hoàn tiền sẽ tuân theo chính sách đổi trả của Shop Anh Thuận.
+                Vui lòng xem chi tiết tại trang "Chính sách đổi trả".
+            </p>
+        </section>
+
+        <section id="8">
+            <h2>8. Vấn đề thanh toán thường gặp</h2>
+            <p>
+                <strong>Giao dịch bị từ chối:</strong> Nếu giao dịch của quý khách bị từ chối, vui lòng kiểm tra số dư tài khoản, hạn mức giao dịch hoặc liên hệ ngân hàng phát hành thẻ.
+                Sau đó, thử lại hoặc chọn phương thức thanh toán khác.
+            </p>
+            <p>
+                <strong>Bị trừ tiền nhưng đơn không hoàn thành:</strong> Vui lòng liên hệ ngay với bộ phận hỗ trợ khách hàng. Chúng tôi sẽ kiểm tra và hoàn lại tiền trong vòng 24 giờ.
+            </p>
+            <p>
+                <strong>Quên thanh toán:</strong> Hệ thống sẽ tự động hủy đơn hàng sau 24 giờ nếu chưa thanh toán. Quý khách có thể đặt lại đơn mới.
+            </p>
+        </section>
+
+        <section id="9">
+            <h2>9. Hỗ trợ thanh toán</h2>
+            <p>
+                Nếu quý khách gặp bất kỳ vấn đề nào trong quá trình thanh toán, vui lòng liên hệ với chúng tôi:
+            </p>
+            <p>
+                Hotline: 1800 1234<br>
+                Email: support@shopanhthuan.vn<br>
+                Chat hỗ trợ: 9h - 18h (Thứ 2 - Thứ 7)<br>
+                Địa chỉ: 123 Đường Thương Mại, Quận An Phú, TP. HCM
+            </p>
+        </section>
+
+        <a href="/" class="back-btn">← Quay lại trang chủ</a>
+
+    </main>
+
+</div>
+
+</body>
+</html>

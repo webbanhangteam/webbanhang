@@ -704,18 +704,34 @@ function resolveStaticPath(pathname) {
 
   const route = decodedPath.replace(/\\/g, '/');
 
-  if (route === '/' || route === '/index.html' || route === '/web' || route === '/web/') {
-    return safeResolve(webRoot, 'index.html');
+  if (
+    route === '/' ||
+    route === '/index.html' ||
+    route === '/html' ||
+    route === '/html/' ||
+    route === '/html/index.html' ||
+    route === '/web' ||
+    route === '/web/' ||
+    route === '/web/index.html'
+  ) {
+    return safeResolve(webRoot, 'html', 'index.html');
   }
 
+  if (route === '/style.css' || route === '/tailwind.css' || route === '/script.js' || route === '/content.json') {
+    return safeResolve(webRoot, route.slice(1));
+  }
 
-    if (route === '/style.css' || route === '/tailwind.css' || route === '/script.js' || route === '/content.json') {
-      return safeResolve(webRoot, route.slice(1));
-    }
+  if (route.startsWith('/css/')) {
+    return safeResolve(webRoot, route.slice(1));
+  }
 
-    if (route.startsWith('/css/')) {
-      return safeResolve(webRoot, route.slice(1));
-    }
+  if (route.startsWith('/html/')) {
+    return safeResolve(webRoot, route.slice(1));
+  }
+
+  if (route.endsWith('.html')) {
+    return safeResolve(webRoot, 'html', route.slice(1));
+  }
 
     if (route.startsWith('/js/')) {
       return safeResolve(webRoot, route.slice(1));
