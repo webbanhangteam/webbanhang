@@ -54,29 +54,45 @@ Shop Anh Thuan la website ban hang chay bang Node.js, frontend tinh va MySQL. Du
 
 ```txt
 .
-|-- config/
-|   `-- db.js
-|-- data/
-|   `-- products.json
-|-- middleware/
-|   |-- adminMiddleware.js
-|   `-- rateLimiter.js
-|-- routes/
-|   |-- auth.js
-|   `-- products.js
-|-- tests/
-|   `-- auth.test.mjs
-|-- web/
-|   |-- assets/
-|   |-- index.html
-|   |-- script.js
-|   |-- style.css
-|   `-- tailwind.css
-|-- Dockerfile
-|-- docker-compose.yml
-|-- package.json
-|-- server.js
-`-- UPDATED_FEATURES.md
+webbanhang/
+├── public/                         # Frontend static files
+│   ├── content/                    # Website content data
+│   ├── css/                        # Stylesheets
+│   ├── image/                      # Images and product photos
+│   ├── js/                         # Frontend JavaScript files
+│   └── html/                       # Static HTML pages
+│
+├── src/
+│   ├── config/                     # Database configuration
+│   ├── data/                       # JSON data storage
+│   ├── middleware/                 # Express middlewares
+│   ├── routes/                     # API routes
+│   ├── utils/                      # Utility functions
+│   └── server.js                   # Application entry point
+│
+├── tests/                          # Automated tests
+├── .env                            # Environment variables
+├── .env.example                    # Environment variables template
+├── .eslintrc.json                  # ESLint configuration
+├── .gitignore                      # Git ignored files
+├── .nvmrc                          # Node.js version specification
+├── .prettierrc                     # Prettier configuration
+│
+├── Dockerfile                      # Docker image configuration
+├── docker-compose.yml              # Multi-container Docker setup
+├── Procfile                        # Deployment process configuration
+├── ecosystem.config.cjs            # PM2 process manager configuration
+│
+├── input.css                       # Tailwind CSS input file
+├── postcss.config.js               # PostCSS configuration
+├── tailwind.config.js              # Tailwind CSS configuration
+│
+├── package.json                    # Project metadata and dependencies
+├── package-lock.json               # Dependency lock file
+│
+├── testdb.js                       # Database connection test script
+├── UPDATED_FEATURES.md             # Feature update documentation
+└── README.md                       # Project documentation
 ```
 
 ## Chay Local
