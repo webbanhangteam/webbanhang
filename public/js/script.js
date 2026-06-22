@@ -564,6 +564,7 @@ function renderProductEmptyState() {
 
 function renderProductCard(product, showWishlist) {
     const sizes = getProductSizes(product);
+    const primaryImage = getProductImages(product)[0];
     const wished = wishlist.has(Number(product.id));
     const salePercent = getProductSalePercent(product);
     const basePrice = getProductBasePrice(product);
@@ -576,10 +577,10 @@ function renderProductCard(product, showWishlist) {
         ? `<div class="price-stack"><strong>${currency.format(salePrice)}</strong><del>${currency.format(basePrice)}</del></div>`
         : `<strong>${currency.format(basePrice)}</strong>`;
     const saleBadge = salePercent ? `<span class="sale-badge">-${salePercent}%</span>` : '';
-    const chooseSize = contentText('labels.chooseSize', 'Chọn size');
+    const chooseSize = contentText('labels.chooseSize', 'Chọn kích cỡ');
     const soldOut = contentText('labels.soldOut', 'hết hàng');
     const sizeSelect = sizes.length ? `
-        <select class="product-size-select" data-size-for="${product.id}" aria-label="${escapeAttr(contentTemplate('labels.chooseSizeFor', { name: product.name }, 'Chọn size {name}'))}">
+        <select class="product-size-select" data-size-for="${product.id}" aria-label="${escapeAttr(contentTemplate('labels.chooseSizeFor', { name: product.name }, 'Chọn kích cỡ cho {name}'))}">
             <option value="">${escapeHtml(chooseSize)}</option>
             ${sizes.map((size) => {
         const qty = Number(product.stock?.[String(size)] || 0);
@@ -598,7 +599,7 @@ function renderProductCard(product, showWishlist) {
                 ${saleBadge}
                 ${showWishlist ? `<button class="wishlist-btn shadow-sm transition-all duration-300 hover:scale-105${wished ? ' active' : ''}" type="button" aria-label="${escapeAttr(contentText('labels.wishlist', 'Yêu thích'))}" data-product-id="${product.id}"><i class="bi ${wished ? 'bi-heart-fill' : 'bi-heart'}"></i></button>` : ''}
                 <a class="product-media block overflow-hidden bg-gray-100" href="#product-detail">
-                    <img class="w-full object-cover transition-transform duration-300" src="${escapeAttr(product.image)}" alt="${escapeAttr(product.name)}" loading="lazy">
+                    <img class="w-full object-cover transition-transform duration-300" src="${escapeAttr(primaryImage)}" alt="${escapeAttr(product.name)}" loading="lazy">
                     <span class="product-hover-detail">
                         <strong>${escapeHtml(contentText('labels.productDetail', 'Chi tiết sản phẩm'))}</strong>
                         <small>${escapeHtml(getProductDescription(product))}</small>
@@ -638,7 +639,7 @@ function renderProductDetail(productId = currentDetailProductId) {
     if (price) price.innerHTML = renderPrice(product);
     if (desc) desc.textContent = getProductDescription(product);
     if (detailBreadcrumbName) detailBreadcrumbName.textContent = product.name;
-    if (detailCategoryBadge) detailCategoryBadge.textContent = product.displayCategory || 'Best seller';
+    if (detailCategoryBadge) detailCategoryBadge.textContent = product.displayCategory || 'Bán chạy';
     if (gallery) renderDetailGallery(gallery, product);
     renderDetailDescription(product);
     renderRelatedProducts(product);
@@ -675,12 +676,12 @@ function renderProductDetail(productId = currentDetailProductId) {
 
 function renderDetailGallery(gallery, product) {
     const images = getProductImages(product);
-    const [mainImage, ...thumbImages] = images;
+    const [mainImage] = images;
 
     gallery.innerHTML = `
         <img src="${escapeAttr(mainImage)}" alt="${escapeAttr(product.name)}" loading="lazy" decoding="async">
         <div class="thumbs">
-            ${(thumbImages.length ? thumbImages : images).slice(0, 3).map((image, index) => {
+            ${images.map((image, index) => {
         return `<img src="${escapeAttr(image)}" alt="${escapeAttr(product.name)} ${index + 1}" loading="lazy" decoding="async"${index === 0 ? ' class="active"' : ''}>`;
     }).join('')}
         </div>
@@ -722,9 +723,11 @@ function renderRelatedProducts(product) {
 }
 
 function renderRelatedProductCard(product) {
+    const primaryImage = getProductImages(product)[0];
+
     return `
         <button class="related-product-card" type="button" data-product-id="${product.id}">
-            <img src="${escapeAttr(product.image)}" alt="${escapeAttr(product.name)}" loading="lazy" decoding="async">
+            <img src="${escapeAttr(primaryImage)}" alt="${escapeAttr(product.name)}" loading="lazy" decoding="async">
             <span>${escapeHtml(product.name)}</span>
             ${renderPrice(product)}
         </button>
@@ -754,7 +757,7 @@ function applyActiveFilter() {
     const filter = active ? active.dataset.filter : 'all';
 
     document.querySelectorAll('.secondary-products .product-card-shell, .secondary-products > .product-card').forEach((card) => {
-        card.hidden = filter !== 'all' && card.dataset.category !== filter;
+        card.hidden = filter !== 'all' && card.dataset.type !== filter;
     });
 }
 
@@ -779,12 +782,12 @@ function addProductFromButton(button) {
         }
 
         if (!size) {
-            showToast(contentText('messages.cart.chooseSize', 'Vui lòng chọn size'), 'error');
+            showToast(contentText('messages.cart.chooseSize', 'Vui lòng chọn kích cỡ'), 'error');
             return;
         }
 
         if (Number(product.stock?.[String(size)] || 0) <= 0) {
-            showToast(contentText('messages.cart.sizeSoldOut', 'Size này tạm hết hàng'), 'error');
+            showToast(contentText('messages.cart.sizeSoldOut', 'Kích cỡ này tạm hết hàng'), 'error');
             return;
         }
     }
@@ -917,7 +920,7 @@ function renderCart() {
         return;
     }
 
-    const sizeLabel = contentText('labels.size', 'Size');
+    const sizeLabel = contentText('labels.size', 'Kích cỡ');
     const decreaseQty = contentText('labels.decreaseQty', 'Giảm số lượng');
     const increaseQty = contentText('labels.increaseQty', 'Tăng số lượng');
 
@@ -938,18 +941,37 @@ function renderCart() {
 }
 
 function renderSearch(query) {
-    const normalized = query.trim().toLowerCase();
+    const normalized = normalizeSearchText(query);
     const matches = products.filter((product) => {
-        const haystack = `${product.name} ${product.displayCategory}`.toLowerCase();
+        const categoryLabel = getSearchCategoryLabel(product);
+        const haystack = normalizeSearchText(`${product.name} ${categoryLabel} ${product.displayCategory}`);
         return !normalized || haystack.includes(normalized);
     }).slice(0, 6);
 
     searchResults.innerHTML = matches.map((product) => `
         <button type="button" class="search-result" data-product-id="${product.id}">
-            <span>${escapeHtml(product.name)}</span>
+            <span>${escapeHtml(product.name)} · ${escapeHtml(getSearchCategoryLabel(product))}</span>
             ${renderPrice(product)}
         </button>
     `).join('');
+}
+
+function normalizeSearchText(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd');
+}
+
+function getSearchCategoryLabel(product) {
+    const category = String(product?.category || '').toLowerCase();
+    const displayCategory = String(product?.displayCategory || '').toLowerCase();
+
+    if (category === 'shoes' || displayCategory === 'sneaker') return 'Giày sneaker';
+    if (category === 'clothing' || displayCategory === 'apparel') return 'Quần áo';
+    return 'Phụ kiện';
 }
 
 function scrollToProduct(productId) {
@@ -1225,7 +1247,7 @@ function updateAccountUi() {
         return;
     }
 
-    accountStatus.textContent = `${currentUser.username} - ${currentUser.role}`;
+    accountStatus.textContent = `${currentUser.username} - ${getRoleLabel(currentUser.role)}`;
     openAuthButton.hidden = true;
     logoutButton.hidden = false;
     if (profileLoggedOut) profileLoggedOut.hidden = true;
@@ -1249,12 +1271,12 @@ function updateAccountUi() {
 
 function updateProfileSummary() {
     const displayName = currentUser?.fullName || currentUser?.username || '';
-    if (profileDisplayName) profileDisplayName.textContent = displayName || 'User';
+    if (profileDisplayName) profileDisplayName.textContent = displayName || 'Thành viên';
     if (profileAvatarLetter) profileAvatarLetter.textContent = (displayName || 'U').trim().charAt(0).toUpperCase();
     if (profileRoleBadge) {
         profileRoleBadge.classList.toggle('admin', currentUser?.role === 'Admin');
         profileRoleBadge.classList.toggle('user', currentUser?.role !== 'Admin');
-        profileRoleBadge.innerHTML = `<i class="bi ${currentUser?.role === 'Admin' ? 'bi-shield-check' : 'bi-person-fill'}"></i> ${escapeHtml(currentUser?.role || 'User')}`;
+        profileRoleBadge.innerHTML = `<i class="bi ${currentUser?.role === 'Admin' ? 'bi-shield-check' : 'bi-person-fill'}"></i> ${escapeHtml(getRoleLabel(currentUser?.role))}`;
     }
 }
 
@@ -1296,10 +1318,15 @@ function renderAdminStats(orders = null) {
 
 function updateAdminImagePreview() {
     if (!adminImagePreview) return;
-    const image = document.getElementById('adminImage').value.trim();
+    const images = splitImageList(document.getElementById('adminImage').value);
 
-    adminImagePreview.innerHTML = image
-        ? `<img src="${escapeAttr(image)}" alt="${escapeAttr(contentText('labels.imagePreview', 'Xem trước ảnh'))}" loading="lazy" decoding="async">`
+    adminImagePreview.innerHTML = images.length
+        ? `<div class="admin-image-preview-grid">${images.map((image, index) => `
+            <figure>
+                <img src="${escapeAttr(image)}" alt="${escapeAttr(`${contentText('labels.imagePreview', 'Xem trước ảnh')} ${index + 1}`)}" loading="lazy" decoding="async">
+                ${index === 0 ? '<figcaption>Ảnh đại diện</figcaption>' : ''}
+            </figure>
+        `).join('')}</div>`
         : `
             <div class="placeholder-icon">
                 <i class="bi bi-image"></i>
@@ -1353,7 +1380,7 @@ function renderOrderHistory(orders) {
         const items = Array.isArray(order.items) ? order.items : [];
         const createdAt = order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '';
         const itemRows = items.map((item) => {
-            const size = item.size ? ` - Size ${escapeHtml(item.size)}` : '';
+            const size = item.size ? ` - Kích cỡ ${escapeHtml(item.size)}` : '';
             return `<li>${escapeHtml(item.name)}${size} x ${Number(item.quantity) || 0}</li>`;
         }).join('');
         const fulfillmentStatus = normalizeOrderFulfillmentStatus(order.fulfillmentStatus);
@@ -1843,7 +1870,7 @@ function renderAdminOrders(orders) {
         ].filter(Boolean).map(escapeHtml).join('<br>');
         const items = Array.isArray(order.items) ? order.items : [];
         const itemRows = items.map((item) => {
-            const size = item.size ? `Size ${escapeHtml(item.size)} - ` : '';
+            const size = item.size ? `Kích cỡ ${escapeHtml(item.size)} - ` : '';
             return `
                 <span>${escapeHtml(item.name)} x ${Number(item.quantity) || 0}</span>
                 <small>${size}${currency.format(Number(item.unitPrice) || 0)}</small>
@@ -1963,7 +1990,7 @@ async function submitAdminProduct(event) {
     event.preventDefault();
 
     if (!currentUser?.token || currentUser.role !== 'Admin') {
-        adminMessage.textContent = contentText('messages.admin.needAdmin', 'Bạn cần đăng nhập Admin.');
+        adminMessage.textContent = contentText('messages.admin.needAdmin', 'Bạn cần đăng nhập bằng tài khoản quản trị viên.');
         return;
     }
 
@@ -1971,13 +1998,15 @@ async function submitAdminProduct(event) {
     const category = document.getElementById('adminCategory').value;
     const sizes = splitList(document.getElementById('adminSizes').value);
     const stockInput = document.getElementById('adminStock').value;
+    const images = splitImageList(document.getElementById('adminImage').value);
     const payload = {
         name: document.getElementById('adminName').value,
         category,
         displayCategory: displayCategoryFromType(category),
         price: Number(document.getElementById('adminPrice').value),
         salePercent: Number(document.getElementById('adminSalePercent').value) || 0,
-        image: document.getElementById('adminImage').value,
+        image: images[0] || '',
+        images: images.slice(1),
         sizes,
         stock: parseStock(stockInput),
         totalStock: sizes.length ? null : parseTotalStock(stockInput),
@@ -2051,7 +2080,7 @@ function fillAdminForm(productId) {
     document.getElementById('adminCategory').value = product.category;
     document.getElementById('adminPrice').value = product.price;
     document.getElementById('adminSalePercent').value = getProductSalePercent(product);
-    document.getElementById('adminImage').value = product.image;
+    document.getElementById('adminImage').value = getProductImages(product).join('\n');
     document.getElementById('adminSizes').value = getProductSizes(product).join(',');
     document.getElementById('adminStock').value = formatStock(product);
     document.getElementById('adminSection').value = product.section || 'products';
@@ -2123,7 +2152,7 @@ function productFromCard(card, button) {
         id: Number(button?.dataset.productId || card?.dataset.productId || Date.now()),
         name: button?.dataset.name || card?.dataset.name || contentText('labels.productFallback', 'Sản phẩm'),
         category: card?.dataset.type || productTypeFromDisplay(card?.dataset.category || ''),
-        displayCategory: card?.dataset.category || 'Accessory',
+        displayCategory: card?.dataset.category || 'Phụ kiện',
         price: Number(button?.dataset.price || card?.dataset.price || 0),
         sizes: [],
         stock: {}
@@ -2198,16 +2227,20 @@ function clampQuantity(product, quantity) {
 }
 
 function displayCategoryFromType(category) {
-    if (category === 'shoes') return 'Sneaker';
-    if (category === 'clothing') return 'Apparel';
-    return 'Accessory';
+    if (category === 'shoes') return 'Giày sneaker';
+    if (category === 'clothing') return 'Quần áo';
+    return 'Phụ kiện';
 }
 
 function productTypeFromDisplay(displayCategory) {
     const normalized = String(displayCategory || '').toLowerCase();
-    if (normalized === 'sneaker') return 'shoes';
-    if (normalized === 'apparel') return 'clothing';
+    if (['sneaker', 'giày sneaker'].includes(normalized)) return 'shoes';
+    if (['apparel', 'áo', 'áo thể thao', 'quần áo'].includes(normalized)) return 'clothing';
     return 'accessory';
+}
+
+function getRoleLabel(role) {
+    return role === 'Admin' ? 'Quản trị viên' : 'Thành viên';
 }
 
 function getProductDescription(product) {
@@ -2215,8 +2248,8 @@ function getProductDescription(product) {
 
     const category = product?.displayCategory || 'sản phẩm';
     const sizeInfo = getProductSizes(product).length
-        ? `Có các size ${getProductSizes(product).join(', ')}.`
-        : 'Phù hợp dùng hằng ngày, dễ phối với nhiều outfit.';
+        ? `Có các kích cỡ ${getProductSizes(product).join(', ')}.`
+        : 'Phù hợp dùng hằng ngày, dễ phối với nhiều trang phục.';
 
     return `${product?.name || 'Sản phẩm'} thuộc nhóm ${category}, được kiểm tra tồn kho và tình trạng trước khi giao. ${sizeInfo}`;
 }
@@ -2228,7 +2261,7 @@ function getStockSummary(product) {
             .join(', ');
         return available
             ? `${contentText('labels.stock', 'Tồn kho')}: ${available}`
-            : contentText('messages.cart.sizeSoldOut', 'Size này tạm hết hàng');
+            : contentText('messages.cart.sizeSoldOut', 'Kích cỡ này tạm hết hàng');
     }
 
     const totalStock = getProductTotalStock(product);
@@ -2255,6 +2288,15 @@ function splitList(value) {
         .split(',')
         .map((item) => item.trim())
         .filter(Boolean);
+}
+
+function splitImageList(value) {
+    return Array.from(new Set(
+        String(value || '')
+            .split(/\r?\n/)
+            .map((item) => item.trim())
+            .filter(Boolean)
+    ));
 }
 
 function parseStock(value) {

@@ -805,7 +805,7 @@ a {
 
 .thumbs {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
     gap: 12px;
     margin-top: 12px;
 }
@@ -815,6 +815,12 @@ a {
     aspect-ratio: 1 / 0.78;
     border-radius: var(--radius);
     object-fit: cover;
+    cursor: pointer;
+    border: 2px solid transparent;
+}
+
+.thumbs img.active {
+    border-color: var(--ink);
 }
 
 .detail-card {
@@ -1013,6 +1019,7 @@ a {
 .auth-form input,
 .profile-form input,
 .admin-form input,
+.admin-form textarea,
 .admin-form select,
 .product-size-select {
     min-height: 48px;
@@ -1022,11 +1029,19 @@ a {
     outline: none;
 }
 
+.admin-form textarea {
+    min-height: 110px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    resize: vertical;
+}
+
 .signup-form input:focus,
 .search-box input:focus,
 .auth-form input:focus,
 .profile-form input:focus,
 .admin-form input:focus,
+.admin-form textarea:focus,
 .admin-form select:focus,
 .product-size-select:focus {
     border-color: var(--ink);
@@ -2362,8 +2377,35 @@ a {
 
 .admin-image-preview img {
     width: 100%;
-    height: 220px;
+    height: 150px;
     object-fit: cover;
+}
+
+.admin-image-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 10px;
+    width: 100%;
+    padding: 10px;
+}
+
+.admin-image-preview-grid figure {
+    position: relative;
+    margin: 0;
+    overflow: hidden;
+    border-radius: var(--radius);
+}
+
+.admin-image-preview-grid figcaption {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    padding: 4px 7px;
+    border-radius: 999px;
+    color: white;
+    background: rgba(0, 0, 0, 0.72);
+    font-size: 0.68rem;
+    font-weight: 800;
 }
 
 .placeholder-icon {

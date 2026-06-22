@@ -56,21 +56,21 @@ const defaultProducts = [
   },
   {
     id: 5,
-    name: 'England Jersey 2026',
+    name: 'Áo đấu tuyển Anh 2026',
     category: 'clothing',
-    displayCategory: 'Apparel',
+    displayCategory: 'Áo thể thao',
     price: 790000,
     salePercent: 20,
-    image: './assets/image/England.jpg',
+    image: '/image/products/England.avif',
     section: 'products',
     sizes: ['S', 'M', 'L', 'XL'],
     stock: { S: 5, M: 8, L: 6, XL: 3 }
   },
   {
     id: 6,
-    name: 'Sling Bag Minimal Black',
+    name: 'Túi đeo chéo tối giản màu đen',
     category: 'accessory',
-    displayCategory: 'Accessory',
+    displayCategory: 'Phụ kiện',
     price: 450000,
     salePercent: 0,
     image: 'https://images.unsplash.com/photo-1594223274512-ad4803739b7c?auto=format&fit=crop&w=900&q=84',
@@ -81,9 +81,9 @@ const defaultProducts = [
   },
   {
     id: 7,
-    name: 'Street Cap Washed Grey',
+    name: 'Mũ lưỡi trai xám bạc màu',
     category: 'accessory',
-    displayCategory: 'Accessory',
+    displayCategory: 'Phụ kiện',
     price: 320000,
     salePercent: 0,
     image: 'https://images.unsplash.com/photo-1529958030586-3aae4ca485ff?auto=format&fit=crop&w=900&q=84',
@@ -94,9 +94,9 @@ const defaultProducts = [
   },
   {
     id: 8,
-    name: 'Boxy Tee Essential',
+    name: 'Áo thun Essential dáng rộng',
     category: 'clothing',
-    displayCategory: 'Apparel',
+    displayCategory: 'Áo thể thao',
     price: 390000,
     salePercent: 0,
     image: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&w=900&q=84',
@@ -296,7 +296,11 @@ function normalizeProduct(input, current, products) {
   );
   const price = Number(input.price !== undefined ? input.price : base.price);
   const salePercent = normalizeSalePercent(input.salePercent !== undefined ? input.salePercent : base.salePercent);
-  const name = String(input.name !== undefined ? input.name : base.name || '').trim();
+  const name = normalizeProductName(input.name !== undefined ? input.name : base.name);
+  const productImages = normalizeProductImages(
+    input.image !== undefined ? input.image : base.image,
+    input.images !== undefined ? input.images : base.images
+  );
 
   if (!name) {
     throw new Error('Ten san pham la bat buoc');
@@ -313,7 +317,8 @@ function normalizeProduct(input, current, products) {
     displayCategory: normalizeDisplayCategory(input.displayCategory || base.displayCategory, category),
     price,
     salePercent,
-    image: String(input.image !== undefined ? input.image : base.image || '').trim(),
+    image: productImages.image,
+    images: productImages.images,
     section: normalizeSection(input.section || base.section),
     sizes,
     stock,
@@ -323,8 +328,8 @@ function normalizeProduct(input, current, products) {
 
 async function createProduct(product) {
   const [result] = await db.execute(
-    `INSERT INTO products (name, category, display_category, price, sale_percent, image, section, sizes, stock, total_stock)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO products (name, category, display_category, price, sale_percent, image, images, section, sizes, stock, total_stock)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     productToParams(product).slice(1)
   );
 
@@ -334,7 +339,7 @@ async function createProduct(product) {
 async function updateProduct(id, product) {
   await db.execute(
     `UPDATE products
-     SET name = ?, category = ?, display_category = ?, price = ?, sale_percent = ?, image = ?, section = ?,
+     SET name = ?, category = ?, display_category = ?, price = ?, sale_percent = ?, image = ?, images = ?, section = ?,
          sizes = ?, stock = ?, total_stock = ?
      WHERE id = ?`,
     [...productToParams(product).slice(1), Number(id)]
@@ -366,8 +371,8 @@ async function writeProducts(filePath, products) {
     const product = normalizeProduct(input, input.id ? { id: input.id } : null, products);
     await db.execute(
       `INSERT IGNORE INTO products
-       (id, name, category, display_category, price, sale_percent, image, section, sizes, stock, total_stock)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, name, category, display_category, price, sale_percent, image, images, section, sizes, stock, total_stock)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       productToParams(product)
     );
   }
@@ -384,6 +389,7 @@ function productToParams(product) {
     Number(product.price) || 0,
     Number(product.salePercent) || 0,
     product.image,
+    JSON.stringify(product.images || []),
     product.section,
     JSON.stringify(product.sizes || []),
     JSON.stringify(product.stock || {}),
@@ -394,14 +400,17 @@ function productToParams(product) {
 function rowToProduct(row) {
   if (!row) return null;
 
+  const productImages = normalizeProductImages(row.image, parseJson(row.images, []));
+
   return {
     id: Number(row.id),
-    name: row.name,
+    name: normalizeProductName(row.name),
     category: row.category,
-    displayCategory: row.display_category,
+    displayCategory: normalizeDisplayCategory(row.display_category, row.category),
     price: Number(row.price),
     salePercent: Number(row.sale_percent) || 0,
-    image: row.image || '',
+    image: productImages.image,
+    images: productImages.images,
     section: row.section,
     sizes: parseJson(row.sizes, []),
     stock: parseJson(row.stock, {}),
@@ -436,11 +445,66 @@ function normalizeCategory(value) {
 
 function normalizeDisplayCategory(value, category) {
   const label = String(value || '').trim();
-  if (label) return label;
+  if (label) {
+    const normalized = label.toLowerCase();
+    if (normalized === 'apparel') return 'Quần áo';
+    if (normalized === 'accessory') return 'Phụ kiện';
+    if (normalized === 'sneaker') return 'Giày sneaker';
+    if (normalized === 'test') return 'Thử nghiệm';
+    return label;
+  }
 
-  if (category === 'shoes') return 'Sneaker';
-  if (category === 'clothing') return 'Apparel';
-  return 'Accessory';
+  if (category === 'shoes') return 'Giày sneaker';
+  if (category === 'clothing') return 'Quần áo';
+  return 'Phụ kiện';
+}
+
+function normalizeProductImage(value) {
+  const image = String(value || '').trim();
+  const normalized = image.replace(/\\/g, '/').replace(/^\.?\//, '').toLowerCase();
+  const legacyEnglandPaths = new Set([
+    'assets/image/england.jpg',
+    'image/products/england.jpg'
+  ]);
+
+  return legacyEnglandPaths.has(normalized) ? '/image/products/England.avif' : image;
+}
+
+function normalizeProductImages(primaryImage, additionalImages) {
+  const images = [
+    primaryImage,
+    ...normalizeImageList(additionalImages)
+  ]
+    .map(normalizeProductImage)
+    .filter(Boolean);
+  const uniqueImages = Array.from(new Set(images));
+
+  return {
+    image: uniqueImages[0] || '',
+    images: uniqueImages.slice(1)
+  };
+}
+
+function normalizeImageList(value) {
+  if (Array.isArray(value)) return value;
+  if (value === null || value === undefined) return [];
+
+  return String(value)
+    .split(/\r?\n/)
+    .map((image) => image.trim())
+    .filter(Boolean);
+}
+
+function normalizeProductName(value) {
+  const name = String(value || '').trim();
+  const legacyNames = {
+    'England Jersey 2026': 'Áo đấu tuyển Anh 2026',
+    'Sling Bag Minimal Black': 'Túi đeo chéo tối giản màu đen',
+    'Street Cap Washed Grey': 'Mũ lưỡi trai xám bạc màu',
+    'Boxy Tee Essential': 'Áo thun Essential dáng rộng'
+  };
+
+  return legacyNames[name] || name;
 }
 
 function normalizeSection(value) {
@@ -506,5 +570,7 @@ module.exports = {
   readProducts,
   writeProducts,
   getProductById,
-  invalidateProductsCache
+  invalidateProductsCache,
+  normalizeProductImage,
+  normalizeProductImages
 };

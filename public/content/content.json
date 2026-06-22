@@ -1,7 +1,7 @@
 {
   "meta": {
-    "title": "Shop Anh Thuan",
-    "description": "Chill n Free Store - sneaker, streetwear và phụ kiện chọn lọc, giao COD toàn quốc."
+    "title": "Cửa hàng Tăng Thuận",
+    "description": "Cửa hàng Chill n Free - giày sneaker, thời trang đường phố và phụ kiện chọn lọc, giao COD toàn quốc."
   },
   "static": [
     {
@@ -17,12 +17,12 @@
     {
       "selector": ".site-header .brand",
       "attrs": {
-        "aria-label": "Shop Anh Thuan"
+        "aria-label": "Cửa hàng Anh Thuận"
       }
     },
     {
       "selector": ".site-header .brand span, #mobileMenuLabel",
-      "text": "Shop Anh Thuan"
+      "text": "Cửa hàng Anh Thuận"
     },
     {
       "selector": "button.icon-btn[data-bs-target=\"#searchModal\"]",
@@ -50,7 +50,7 @@
     },
     {
       "selector": ".mobile-menu .menu-section:nth-of-type(1) .menu-label",
-      "text": "Navigation"
+      "text": "Điều hướng"
     },
     {
       "selector": ".mobile-menu .menu-section:nth-of-type(1) a",
@@ -67,8 +67,8 @@
     {
       "selector": ".mobile-menu .menu-section:nth-of-type(2) a",
       "text": [
-        "Album",
-        "Blog",
+        "Bộ sưu tập",
+        "Cẩm nang",
         "Tài khoản"
       ]
     },
@@ -81,16 +81,16 @@
       "text": [
         "Liên hệ",
         "Chính sách bảo mật",
-        "FAQ"
+        "Câu hỏi thường gặp"
       ]
     },
     {
       "selector": ".carousel-indicators button",
       "attrs": {
         "aria-label": [
-          "Slide 1",
-          "Slide 2",
-          "Slide 3"
+          "Ảnh 1",
+          "Ảnh 2",
+          "Ảnh 3"
         ]
       }
     },
@@ -100,16 +100,16 @@
         "alt": [
           "Sneaker trắng trên nền tối",
           "Kệ giày sneaker nhiều màu",
-          "Sneaker streetwear"
+          "Giày sneaker phong cách đường phố"
         ]
       }
     },
     {
       "selector": ".carousel-item .hero-copy h1, .carousel-item .hero-copy h2",
       "text": [
-        "Sneaker Dinh Cao - Phong Cach Khong Gioi Han",
-        "Giay, Ao Va Phu Kien - Cung Mot Tinh Than",
-        "Streetwear Chuan Pho - Dinh Nghia Phong Cach"
+        "Giày sneaker đỉnh cao - Phong cách không giới hạn",
+        "Giày, áo và phụ kiện - Cùng một tinh thần",
+        "Thời trang đường phố - Định nghĩa phong cách"
       ]
     },
     {
@@ -117,19 +117,19 @@
       "text": [
         "Xem sản phẩm mới",
         "Mua ngay",
-        "Liên hệ shop"
+        "Liên hệ cửa hàng"
       ]
     },
     {
       "selector": ".carousel-control-prev",
       "attrs": {
-        "aria-label": "Slide trước"
+        "aria-label": "Ảnh trước"
       }
     },
     {
       "selector": ".carousel-control-next",
       "attrs": {
-        "aria-label": "Slide sau"
+        "aria-label": "Ảnh sau"
       }
     },
     {
@@ -138,7 +138,7 @@
         "alt": [
           "Sneaker Nike đặt nghiêng",
           "Áo khoác streetwear",
-          "Sản phẩm local"
+          "Sản phẩm trong nước"
         ]
       }
     },
@@ -147,7 +147,7 @@
       "text": [
         "Sản phẩm mới",
         "Phụ kiện",
-        "Album"
+        "Bộ sưu tập"
       ]
     },
     {
@@ -168,20 +168,20 @@
       "selector": ".category-tabs button",
       "text": [
         "Tất cả",
-        "Sneaker",
-        "Áo",
+        "Giày sneaker",
+        "Quần áo",
         "Phụ kiện"
       ]
     },
     {
       "selector": "#accessories > img",
       "attrs": {
-        "alt": "Streetwear lookbook"
+        "alt": "Bộ ảnh thời trang đường phố"
       }
     },
     {
       "selector": ".wide-promo-copy h2",
-      "text": "Hoàn thiện outfit bằng những món nhỏ nhưng đúng chất."
+      "text": "Hoàn thiện trang phục bằng những món nhỏ nhưng đúng chất."
     },
     {
       "selector": ".wide-promo-copy a",
@@ -198,22 +198,22 @@
       "attrs": {
         "alt": [
           "Góc bên sneaker",
-          "Sneaker on feet",
+          "Giày sneaker khi mang",
           "Chi tiết đế giày"
         ]
       }
     },
     {
-      "selector": ".detail-card .label",
-      "text": "Best seller"
+      "selector": "#detailCategoryBadge",
+      "text": "Bán chạy"
     },
     {
-      "selector": ".detail-card .rating span",
+      "selector": ".detail-card .rating span:last-child",
       "text": "184 đánh giá"
     },
     {
       "selector": ".detail-desc",
-      "text": "Form cổ điển, màu trắng dễ phối, phù hợp đi học, đi làm và các outfit tối giản. Sản phẩm được kiểm tra trước khi giao."
+      "text": "Kiểu dáng cổ điển, màu trắng dễ phối, phù hợp đi học, đi làm và các trang phục tối giản. Sản phẩm được kiểm tra trước khi giao."
     },
     {
       "selector": ".add-detail-cart",
@@ -222,7 +222,7 @@
     {
       "selector": ".benefits h3",
       "text": [
-        "Ship COD toàn quốc",
+        "Giao hàng COD toàn quốc",
         "Quà tặng đơn hàng",
         "Sản phẩm được kiểm tra"
       ]
@@ -231,58 +231,58 @@
       "selector": ".benefits p",
       "text": [
         "Kiểm tra đơn trước khi nhận, hỗ trợ đóng gói kỹ.",
-        "Đơn đạt mốc sẽ nhận vớ, sticker hoặc voucher.",
-        "Shop rà size, tình trạng và ảnh thật trước khi gửi."
+        "Đơn đạt mốc sẽ nhận vớ, nhãn dán hoặc phiếu ưu đãi.",
+        "Cửa hàng kiểm tra kích cỡ, tình trạng và ảnh thật trước khi gửi."
       ]
     },
     {
       "selector": "#album .section-head p",
-      "text": "Lookbook"
+      "text": "Phối đồ"
     },
     {
       "selector": "#album .section-head h2",
-      "text": "Album"
+      "text": "Bộ sưu tập"
     },
     {
       "selector": ".album-grid img",
       "attrs": {
         "alt": [
-          "Lookbook sneaker 1",
-          "Lookbook streetwear 2",
-          "Lookbook streetwear 3"
+          "Bộ ảnh giày sneaker 1",
+          "Bộ ảnh thời trang đường phố 2",
+          "Bộ ảnh thời trang đường phố 3"
         ]
       }
     },
     {
       "selector": "#blog .section-head p",
-      "text": "Journal"
+      "text": "Bài viết"
     },
     {
       "selector": "#blog .section-head h2",
-      "text": "Blog"
+      "text": "Cẩm nang"
     },
     {
       "selector": ".blog-grid article span",
       "text": [
-        "Guide",
-        "Care",
-        "Style"
+        "Hướng dẫn",
+        "Bảo quản",
+        "Phong cách"
       ]
     },
     {
       "selector": ".blog-grid article h3",
       "text": [
-        "Cách chọn size sneaker khi đặt online",
+        "Cách chọn kích cỡ giày sneaker khi đặt trực tuyến",
         "Giữ giày trắng sạch lâu hơn",
-        "3 outfit tối giản với một đôi sneaker trắng"
+        "3 trang phục tối giản với một đôi sneaker trắng"
       ]
     },
     {
       "selector": ".blog-grid article p",
       "text": [
-        "Đo chiều dài bàn chân, đối chiếu bảng size và ưu tiên form giày bạn đã từng mang.",
-        "Lau nhẹ sau mỗi lần đi, tránh phơi trực tiếp và dùng cây giữ form nếu có.",
-        "Denim, quần ống suông và áo boxy là bộ ba dễ áp dụng cho cả tuần."
+        "Đo chiều dài bàn chân, đối chiếu bảng kích cỡ và ưu tiên kiểu giày bạn đã từng mang.",
+        "Lau nhẹ sau mỗi lần đi, tránh phơi trực tiếp và dùng cây giữ dáng nếu có.",
+        "Quần jean, quần ống suông và áo dáng rộng là bộ ba dễ áp dụng cho cả tuần."
       ]
     },
     {
@@ -291,7 +291,7 @@
     },
     {
       "selector": "#account > div:first-child h2",
-      "text": "Lưu đơn hàng, nhận ưu đãi và cập nhật drop mới."
+      "text": "Lưu đơn hàng, nhận ưu đãi và cập nhật đợt sản phẩm mới."
     },
     {
       "selector": ".signup-form input",
@@ -330,10 +330,7 @@
     },
     {
       "selector": ".history-head h3",
-      "text": [
-        "Đơn đã đặt",
-        "Lịch sử bán hàng"
-      ]
+      "text": "Lịch sử bán hàng"
     },
     {
       "selector": "#refreshOrdersButton, #refreshAdminOrdersButton",
@@ -341,7 +338,7 @@
     },
     {
       "selector": "#adminPanel .section-head p",
-      "text": "Admin"
+      "text": "Quản trị"
     },
     {
       "selector": "#adminPanel .section-head h2",
@@ -353,9 +350,9 @@
         "Tên sản phẩm",
         "Danh mục",
         "Giá",
-        "Sale (%)",
+        "Giảm giá (%)",
         "Ảnh",
-        "Size",
+        "Kích cỡ",
         "Tồn kho",
         "Khu hiển thị"
       ]
@@ -363,9 +360,9 @@
     {
       "selector": "#adminCategory option",
       "text": [
-        "Sneaker",
-        "Apparel",
-        "Accessory"
+        "Giày sneaker",
+        "Quần áo",
+        "Phụ kiện"
       ]
     },
     {
@@ -406,7 +403,7 @@
         "Sản phẩm",
         "Danh mục",
         "Giá",
-        "Sale",
+        "Giảm giá",
         "Tồn kho"
       ]
     },
@@ -416,12 +413,13 @@
         "Mã đơn",
         "Người đặt",
         "Sản phẩm",
+        "Trạng thái giao hàng",
         "Tổng tiền"
       ]
     },
     {
       "selector": ".footer-brand .brand span",
-      "text": "TANGTHUAN STORE"
+      "text": "CỬA HÀNG TĂNG THUẬN"
     },
     {
       "selector": ".footer-brand p",
@@ -455,15 +453,16 @@
       "selector": ".footer-grid > div:nth-child(3) a",
       "text": [
         "Chính sách bảo mật",
-        "FAQ",
-        "Bảo hành và đổi trả",
-        "Giao hàng hỏa tốc"
+        "Phương thức thanh toán",
+        "Chính sách đổi trả",
+        "Chính sách vận chuyển",
+        "Câu hỏi thường gặp"
       ]
     },
     {
       "selector": ".footer-grid > div:nth-child(4) p",
       "text": [
-        "Hộ kinh doanh: Nguyen Tang Thuan",
+        "Hộ kinh doanh: Nguyễn Tăng Thuận",
         "Giờ mở cửa: 0h - 24h"
       ]
     },
@@ -474,7 +473,7 @@
     {
       "selector": "#searchInput",
       "attrs": {
-        "placeholder": "Nhập tên sản phẩm, danh mục...",
+        "placeholder": "Nhập tên sản phẩm hoặc nhóm hàng...",
         "aria-label": "Tìm kiếm sản phẩm"
       }
     },
@@ -483,23 +482,32 @@
       "text": "Tài khoản"
     },
     {
-      "selector": "#loginTab, #registerTab",
+      "selector": "#loginTabV2, #registerTabV2",
       "text": [
         "Đăng nhập",
         "Đăng ký"
       ]
     },
     {
-      "selector": "#loginForm label, #registerForm label",
-      "textNode": [
-        "Username",
-        "Password",
-        "Username",
-        "Password"
-      ]
+      "selector": "#loginUsername, #registerUsername",
+      "attrs": {
+        "placeholder": "Tên đăng nhập"
+      }
     },
     {
-      "selector": "#loginForm button, #registerForm button",
+      "selector": "#loginPassword",
+      "attrs": {
+        "placeholder": "Mật khẩu"
+      }
+    },
+    {
+      "selector": "#registerPassword",
+      "attrs": {
+        "placeholder": "Mật khẩu (ít nhất 8 ký tự, 1 chữ hoa, 1 số)"
+      }
+    },
+    {
+      "selector": "#loginForm .auth-submit-btn .btn-text, #registerForm .auth-submit-btn .btn-text",
       "text": [
         "Đăng nhập",
         "Đăng ký"
@@ -531,11 +539,11 @@
     }
   ],
   "labels": {
-    "chooseSize": "Chọn size",
-    "chooseSizeFor": "Chọn size {name}",
+    "chooseSize": "Chọn kích cỡ",
+    "chooseSizeFor": "Chọn kích cỡ cho {name}",
     "soldOut": "hết hàng",
     "wishlist": "Yêu thích",
-    "size": "Size",
+    "size": "Kích cỡ",
     "decreaseQty": "Giảm số lượng",
     "increaseQty": "Tăng số lượng",
     "itemCount": "{count} mặt hàng",
@@ -561,8 +569,8 @@
     },
     "cart": {
       "empty": "Chưa có sản phẩm trong giỏ.",
-      "chooseSize": "Vui lòng chọn size",
-      "sizeSoldOut": "Size này tạm hết hàng",
+      "chooseSize": "Vui lòng chọn kích cỡ",
+      "sizeSoldOut": "Kích cỡ này tạm hết hàng",
       "quantityOverStock": "Số lượng vượt quá tồn kho",
       "added": "Đã thêm {name} vào giỏ"
     },
@@ -608,7 +616,7 @@
       "saved": "Đã lưu thông tin tài khoản."
     },
     "admin": {
-      "needAdmin": "Bạn cần đăng nhập Admin.",
+      "needAdmin": "Bạn cần đăng nhập bằng tài khoản quản trị viên.",
       "saving": "Đang lưu...",
       "saveFailed": "Không lưu được sản phẩm.",
       "saved": "Đã lưu sản phẩm.",
