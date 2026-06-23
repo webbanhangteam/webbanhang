@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Thông tin cá nhân và lịch sử đơn hàng.">
+    <title>Thông tin cá nhân | Shop Anh Thuận</title>
+    <link rel="icon" type="image/png" href="/image/logo-nonbg.png?v=5">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Oswald:wght@500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/css/tailwind.css">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+<body>
+    <header class="site-header sticky-top">
+        <nav class="navbar navbar-light bg-white shadow-sm">
+            <div class="container-fluid page-pad nav-shell">
+                <a class="brand" href="/"><img src="/image/logo.png" alt="Shop Anh Thuận"><span>Shop Anh
+                        Thuận</span></a>
+                <div class="header-actions"><a class="outline-btn page-link-button" href="/">Tiếp tục mua sắm</a></div>
+            </div>
+        </nav>
+    </header>
+
+    <main class="standalone-page">
+        <section class="profile-section page-pad">
+            <div id="profileLoggedOut" class="account-band">
+                <div>
+                    <p>Tài khoản thành viên</p>
+                    <h2>Đăng nhập để quản lý hồ sơ và đơn hàng.</h2>
+                </div>
+                <div class="account-tools">
+                    <p id="accountStatus">Chưa đăng nhập</p>
+                    <button class="black-btn" type="button" id="openAuthButton">Đăng nhập / Đăng ký</button>
+                    <button class="outline-btn" type="button" id="logoutButton" hidden>Đăng xuất</button>
+                </div>
+            </div>
+
+            <div id="profileLoggedIn" class="profile-layout" hidden>
+                <aside class="profile-sidebar">
+                    <div class="profile-avatar-card">
+                        <div class="profile-avatar" id="profileAvatarLetter">U</div>
+                        <h3 class="profile-username" id="profileDisplayName">Thành viên</h3>
+                        <span class="profile-role-badge user" id="profileRoleBadge"><i class="bi bi-person-fill"></i>
+                            Thành viên</span>
+                    </div>
+                    <nav class="profile-nav">
+                        <button type="button" class="active" data-profile-tab="info"><i class="bi bi-person"></i> Thông
+                            tin cá nhân</button>
+                        <button type="button" data-profile-tab="orders"><i class="bi bi-bag-check"></i> Đơn
+                            hàng</button>
+                        <button type="button" data-profile-tab="wishlist"><i class="bi bi-heart"></i> Yêu thích</button>
+                        <button type="button" id="logoutButtonProfile"><i class="bi bi-box-arrow-right"></i> Đăng
+                            xuất</button>
+                    </nav>
+                </aside>
+                <div class="profile-main">
+                    <div class="profile-content-card" id="profileTabInfo">
+                        <h3 class="profile-card-title"><i class="bi bi-person-gear"></i> Thông tin cá nhân</h3>
+                        <form id="profileForm" class="profile-form">
+                            <div class="profile-form-grid">
+                                <label>Họ tên<input id="profileFullName" type="text" autocomplete="name"></label>
+                                <label>Số điện thoại<input id="profilePhone" type="tel" autocomplete="tel"></label>
+                                <label class="full-width">Địa chỉ giao hàng<input id="profileAddress" type="text"
+                                        autocomplete="street-address"></label>
+                            </div>
+                            <button class="profile-save-btn" type="submit">Lưu thông tin</button>
+                            <p id="profileMessage" class="checkout-message"></p>
+                        </form>
+                    </div>
+                    <div class="profile-content-card hidden" id="profileTabOrders">
+                        <div class="profile-card-title"><span><i class="bi bi-bag-check"></i> Đơn hàng của
+                                bạn</span><button class="outline-btn compact-button" type="button"
+                                id="refreshOrdersButton">Tải lại</button></div>
+                        <div id="orderHistoryList" class="order-timeline"></div>
+                        <p id="orderHistoryMessage" class="checkout-message"></p>
+                    </div>
+                    <div class="profile-content-card hidden" id="profileTabWishlist">
+                        <h3 class="profile-card-title"><i class="bi bi-heart"></i> Sản phẩm yêu thích</h3>
+                        <div id="wishlistGrid" class="wishlist-grid"></div>
+                    </div>
+                </div>
+            </div>
+            <div id="orderHistoryPanel" hidden></div>
+        </section>
+    </main>
+
+    <div class="modal fade auth-modal" id="authModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body">
+                    <div class="auth-form-side">
+                        <button type="button" class="auth-close-btn" data-bs-dismiss="modal" aria-label="Đóng"><i
+                                class="bi bi-x-lg"></i></button>
+                        <h3 class="auth-form-title" id="authFormTitle">Đăng nhập</h3>
+                        <p class="auth-form-subtitle" id="authFormSubtitle">Nhập thông tin tài khoản</p>
+                        <div class="auth-tabs-v2"><button type="button" class="active" id="loginTabV2">Đăng
+                                nhập</button><button type="button" id="registerTabV2">Đăng ký</button></div>
+                        <div id="loginPaneV2" class="auth-pane active">
+                            <form id="loginForm">
+                                <div class="auth-input-group"><input id="loginUsername" type="text"
+                                        placeholder="Tên đăng nhập" required><i class="bi bi-person"></i></div>
+                                <div class="auth-input-group"><input id="loginPassword" type="password"
+                                        placeholder="Mật khẩu" required><i class="bi bi-lock"></i><button type="button"
+                                        class="password-toggle"><i class="bi bi-eye"></i></button></div><button
+                                    class="auth-submit-btn" type="submit">Đăng nhập</button>
+                                <p id="loginMessage" class="auth-message-v2"></p>
+                            </form>
+                        </div>
+                        <div id="registerPaneV2" class="auth-pane">
+                            <form id="registerForm">
+                                <div class="auth-input-group"><input id="registerUsername" type="text"
+                                        placeholder="Tên đăng nhập" required><i class="bi bi-person-plus"></i></div>
+                                <div class="auth-input-group"><input id="registerPassword" type="password"
+                                        placeholder="Mật khẩu" required><i class="bi bi-lock"></i><button type="button"
+                                        class="password-toggle"><i class="bi bi-eye"></i></button></div><button
+                                    class="auth-submit-btn" type="submit">Đăng ký</button>
+                                <p id="registerMessage" class="auth-message-v2"></p>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/script.js"></script>
+</body>
+
+</html>

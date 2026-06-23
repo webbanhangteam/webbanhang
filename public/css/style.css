@@ -883,6 +883,167 @@ a {
     background: var(--ink);
 }
 
+.color-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0 4px;
+}
+
+.color-list button {
+    min-height: 42px;
+    padding: 0 16px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: white;
+    font-weight: 800;
+}
+
+.color-list button.selected,
+.color-list button:hover {
+    color: white;
+    border-color: var(--ink);
+    background: var(--ink);
+}
+
+.color-list button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.variant-status {
+    min-height: 24px;
+    margin: 10px 0 14px;
+    color: #166534;
+    font-size: 0.9rem;
+    font-weight: 800;
+}
+
+.variant-status.sold-out {
+    color: #dc2626;
+}
+
+.variant-inventory {
+    margin-top: 28px;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: white;
+}
+
+.variant-stock-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.variant-stock-head strong {
+    font-family: Oswald, sans-serif;
+    font-size: 1.35rem;
+    text-transform: uppercase;
+}
+
+.variant-stock-head span {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 800;
+}
+
+.variant-stock-table-wrap {
+    overflow-x: auto;
+}
+
+.variant-stock-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.variant-stock-table th,
+.variant-stock-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+}
+
+.variant-stock-table th {
+    background: var(--soft);
+    font-size: 0.78rem;
+    text-transform: uppercase;
+}
+
+.standalone-page {
+    min-height: calc(100vh - 86px);
+}
+
+.page-link-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
+    padding: 0 18px;
+    text-decoration: none;
+}
+
+.admin-header-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 42px;
+    padding: 0 14px;
+    border: 1px solid var(--ink);
+    border-radius: var(--radius);
+    color: white;
+    background: var(--ink);
+    font-size: 0.78rem;
+    font-weight: 900;
+    text-decoration: none;
+    text-transform: uppercase;
+}
+
+.admin-header-link:hover,
+.admin-header-link.active {
+    color: white;
+    background: var(--accent-dark);
+}
+
+.admin-header-link[hidden] {
+    display: none;
+}
+
+.compact-button {
+    width: auto;
+    min-height: 36px;
+    margin-left: auto;
+    padding: 0 14px;
+}
+
+.access-message {
+    display: grid;
+    justify-items: center;
+    gap: 14px;
+    min-height: calc(100vh - 86px);
+    align-content: center;
+    text-align: center;
+}
+
+.access-message > i {
+    font-size: 3rem;
+}
+
+.admin-form .full-width {
+    grid-column: 1 / -1;
+}
+
+.admin-form label small {
+    display: block;
+    margin-top: 6px;
+    color: var(--muted);
+    line-height: 1.5;
+}
+
 .benefits {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -1021,7 +1182,8 @@ a {
 .admin-form input,
 .admin-form textarea,
 .admin-form select,
-.product-size-select {
+.product-size-select,
+.product-color-select {
     min-height: 48px;
     border: 1px solid var(--line);
     border-radius: var(--radius);
@@ -1043,7 +1205,8 @@ a {
 .admin-form input:focus,
 .admin-form textarea:focus,
 .admin-form select:focus,
-.product-size-select:focus {
+.product-size-select:focus,
+.product-color-select:focus {
     border-color: var(--ink);
 }
 
@@ -1554,6 +1717,40 @@ a {
     opacity: 0.65;
 }
 
+.order-cancel-button {
+    justify-self: end;
+    padding: 9px 13px;
+    border: 1px solid #dc2626;
+    border-radius: 9px;
+    color: #dc2626;
+    background: white;
+    font-size: 0.8rem;
+    font-weight: 900;
+}
+
+.order-cancel-button:hover {
+    color: white;
+    background: #dc2626;
+}
+
+.order-cancel-button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+}
+
+.order-cancelled-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+    padding: 12px;
+    border: 1px solid #fecaca;
+    border-radius: 9px;
+    color: #b91c1c;
+    background: #fef2f2;
+    font-weight: 900;
+}
+
 .auth-message {
     min-height: 22px;
     margin: 0;
@@ -1678,7 +1875,8 @@ a {
     font-weight: 800;
 }
 
-.product-size-select {
+.product-size-select,
+.product-color-select {
     width: 100%;
     min-height: 40px;
     margin-bottom: 12px;
@@ -1845,6 +2043,22 @@ a {
 .admin-fulfillment button:disabled {
     cursor: wait;
     opacity: 0.6;
+}
+
+.admin-order-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.admin-fulfillment button.danger {
+    border-color: #dc2626;
+    background: #dc2626;
+}
+
+.admin-fulfillment small.cancelled {
+    color: #b91c1c;
+    font-weight: 900;
 }
 
 .admin-fulfillment small {

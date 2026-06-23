@@ -14,6 +14,7 @@ const ORDER_FULFILLMENT_STEPS = [
     { value: 'SHIPPING', label: 'Đang giao' },
     { value: 'DELIVERED', label: 'Đã nhận hàng' }
 ];
+const CANCELLED_FULFILLMENT_STATUS = 'CANCELLED';
 
 let products = [];
 let cart = loadJson(CART_KEY, []).map(normalizeCartItem).filter(Boolean);
@@ -39,6 +40,7 @@ const searchResults = document.getElementById('searchResults');
 const productGrid = document.getElementById('productGrid');
 const secondaryProducts = document.querySelector('.secondary-products');
 const accountButton = document.getElementById('accountButton');
+const adminPageLinks = document.querySelectorAll('[data-admin-page-link]');
 const openAuthButton = document.getElementById('openAuthButton');
 const logoutButton = document.getElementById('logoutButton');
 const accountStatus = document.getElementById('accountStatus');
@@ -52,6 +54,7 @@ const orderHistoryList = document.getElementById('orderHistoryList');
 const orderHistoryMessage = document.getElementById('orderHistoryMessage');
 const refreshOrdersButton = document.getElementById('refreshOrdersButton');
 const adminPanel = document.getElementById('adminPanel');
+const adminAccessMessage = document.getElementById('adminAccessMessage');
 const adminProductForm = document.getElementById('adminProductForm');
 const adminProductsBody = document.getElementById('adminProductsBody');
 const adminMessage = document.getElementById('adminMessage');
@@ -91,11 +94,15 @@ async function init() {
     renderProductSkeletons();
     await restoreSession();
     await loadProducts();
+    const requestedProductId = Number(new URLSearchParams(window.location.search).get('id'));
+    if (Number.isInteger(requestedProductId) && requestedProductId > 0) {
+        currentDetailProductId = requestedProductId;
+    }
     syncCartWithProducts();
     renderProducts();
     renderProductDetail();
     renderCart();
-    renderSearch(searchInput.value);
+    renderSearch(searchInput?.value || '');
     updateAccountUi();
     renderAdminProducts();
 }
@@ -116,7 +123,8 @@ async function loadSiteContent() {
 
 function applySiteContent() {
     const title = contentText('meta.title', '');
-    if (title) document.title = title;
+    const isHomePage = ['/', '/index.html', '/html/index.html'].includes(window.location.pathname);
+    if (title && isHomePage) document.title = title;
 
     const description = contentText('meta.description', '');
     const metaDescription = document.querySelector('meta[name="description"]');
@@ -198,27 +206,29 @@ function contentTemplate(path, values, fallback = '') {
 function bindStaticEvents() {
     document.addEventListener('click', handleDocumentClick);
 
-    searchInput.addEventListener('input', () => {
-        renderSearch(searchInput.value);
-    });
-
-    const searchModal = document.getElementById('searchModal');
-    if (searchModal) {
-        searchModal.addEventListener('shown.bs.modal', () => {
-            searchInput.focus();
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
             renderSearch(searchInput.value);
         });
     }
 
-    document.getElementById('momoCheckout').addEventListener('click', () => {
+    const searchModal = document.getElementById('searchModal');
+    if (searchModal) {
+        searchModal.addEventListener('shown.bs.modal', () => {
+            searchInput?.focus();
+            renderSearch(searchInput?.value || '');
+        });
+    }
+
+    document.getElementById('momoCheckout')?.addEventListener('click', () => {
         startPayment('momo');
     });
 
-    document.getElementById('zaloCheckout').addEventListener('click', () => {
+    document.getElementById('zaloCheckout')?.addEventListener('click', () => {
         startPayment('zalopay');
     });
 
-    document.getElementById('codCheckout').addEventListener('click', () => {
+    document.getElementById('codCheckout')?.addEventListener('click', () => {
         startCodCheckout();
     });
 
@@ -244,16 +254,18 @@ function bindStaticEvents() {
         });
     }
 
-    openAuthButton.addEventListener('click', showAuthModal);
+    openAuthButton?.addEventListener('click', showAuthModal);
 
-    accountButton.addEventListener('click', (event) => {
-        if (!currentUser?.token) {
-            event.preventDefault();
-            showAuthModal();
+    accountButton?.addEventListener('click', (event) => {
+        if (!currentUser?.token && accountButton.getAttribute('href')?.startsWith('#')) {
+            if (authModal) {
+                event.preventDefault();
+                showAuthModal();
+            }
         }
     });
 
-    logoutButton.addEventListener('click', async () => {
+    logoutButton?.addEventListener('click', async () => {
         await logout();
     });
 
@@ -398,6 +410,18 @@ function handleDocumentClick(event) {
         return;
     }
 
+    const colorButton = event.target.closest('.color-list button');
+    if (colorButton) {
+        if (colorButton.disabled) return;
+        colorButton.closest('.color-list')?.querySelectorAll('button').forEach((button) => {
+            button.classList.remove('selected');
+        });
+        colorButton.classList.add('selected');
+        const product = products.find((item) => Number(item.id) === Number(currentDetailProductId));
+        if (product) updateDetailVariantState(product);
+        return;
+    }
+
     const sizeButton = event.target.closest('.size-list button');
     if (sizeButton) {
         if (sizeButton.disabled) return;
@@ -405,6 +429,8 @@ function handleDocumentClick(event) {
             button.classList.remove('selected');
         });
         sizeButton.classList.add('selected');
+        const product = products.find((item) => Number(item.id) === Number(currentDetailProductId));
+        if (product) updateDetailVariantState(product);
         return;
     }
 
@@ -456,6 +482,15 @@ function handleDocumentClick(event) {
     const receivedButton = event.target.closest('[data-order-received]');
     if (receivedButton) {
         confirmUserOrderReceived(Number(receivedButton.dataset.orderReceived));
+        return;
+    }
+
+    const cancelOrderButton = event.target.closest('[data-order-cancel]');
+    if (cancelOrderButton) {
+        cancelOrderFromUi(
+            Number(cancelOrderButton.dataset.orderCancel),
+            cancelOrderButton.dataset.cancelActor || 'customer'
+        );
     }
 }
 
@@ -478,9 +513,19 @@ function syncCartWithProducts() {
         if (!product) return null;
 
         const size = item.size ? String(item.size) : '';
+        let color = item.color ? String(item.color) : '';
+        const colors = getProductColors(product);
+        if (!color && colors.length === 1) {
+            [color] = colors;
+        }
+
+        if (colors.length && (!color || !colors.includes(color))) {
+            return null;
+        }
+
         if (requiresSize(product)) {
             const sizes = getProductSizes(product);
-            const stock = Number(product.stock?.[size] || 0);
+            const stock = getVariantStock(product, color, size);
 
             if (!size || !sizes.includes(size) || stock <= 0) {
                 return null;
@@ -490,16 +535,21 @@ function syncCartWithProducts() {
                 productId: Number(product.id),
                 name: product.name,
                 size,
+                color: color || null,
                 quantity: Math.min(Number(item.quantity) || 1, stock),
                 price: getProductSalePrice(product)
             };
         }
 
+        const stock = getVariantStock(product, color, '');
         return {
             productId: Number(product.id),
             name: product.name,
             size: null,
-            quantity: clampQuantity(product, Math.max(1, Number(item.quantity) || 1)),
+            color: color || null,
+            quantity: colors.length
+                ? Math.min(Math.max(1, Number(item.quantity) || 1), stock)
+                : clampQuantity(product, Math.max(1, Number(item.quantity) || 1)),
             price: getProductSalePrice(product)
         };
     }).filter(Boolean);
@@ -564,6 +614,7 @@ function renderProductEmptyState() {
 
 function renderProductCard(product, showWishlist) {
     const sizes = getProductSizes(product);
+    const colors = getProductColors(product);
     const primaryImage = getProductImages(product)[0];
     const wished = wishlist.has(Number(product.id));
     const salePercent = getProductSalePercent(product);
@@ -583,10 +634,21 @@ function renderProductCard(product, showWishlist) {
         <select class="product-size-select" data-size-for="${product.id}" aria-label="${escapeAttr(contentTemplate('labels.chooseSizeFor', { name: product.name }, 'Chọn kích cỡ cho {name}'))}">
             <option value="">${escapeHtml(chooseSize)}</option>
             ${sizes.map((size) => {
-        const qty = Number(product.stock?.[String(size)] || 0);
+        const qty = getSizeTotalStock(product, size);
         const disabled = qty <= 0 ? ' disabled' : '';
         const label = qty <= 0 ? `${size} - ${soldOut}` : `${size} (${qty})`;
         return `<option value="${escapeAttr(size)}"${disabled}>${escapeHtml(label)}</option>`;
+    }).join('')}
+        </select>
+    ` : '';
+    const colorSelect = colors.length ? `
+        <select class="product-color-select" data-color-for="${product.id}" aria-label="Chọn màu cho ${escapeAttr(product.name)}">
+            <option value="">Chọn màu</option>
+            ${colors.map((color) => {
+        const qty = getColorTotalStock(product, color);
+        const disabled = qty <= 0 ? ' disabled' : '';
+        const label = qty <= 0 ? `${color} - hết hàng` : `${color} (${qty})`;
+        return `<option value="${escapeAttr(color)}"${disabled}>${escapeHtml(label)}</option>`;
     }).join('')}
         </select>
     ` : '';
@@ -598,7 +660,7 @@ function renderProductCard(product, showWishlist) {
             <div class="product-card card h-full border-0 shadow-sm rounded-xl overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl">
                 ${saleBadge}
                 ${showWishlist ? `<button class="wishlist-btn shadow-sm transition-all duration-300 hover:scale-105${wished ? ' active' : ''}" type="button" aria-label="${escapeAttr(contentText('labels.wishlist', 'Yêu thích'))}" data-product-id="${product.id}"><i class="bi ${wished ? 'bi-heart-fill' : 'bi-heart'}"></i></button>` : ''}
-                <a class="product-media block overflow-hidden bg-gray-100" href="#product-detail">
+                <a class="product-media block overflow-hidden bg-gray-100" href="/product.html?id=${product.id}">
                     <img class="w-full object-cover transition-transform duration-300" src="${escapeAttr(primaryImage)}" alt="${escapeAttr(product.name)}" loading="lazy">
                     <span class="product-hover-detail">
                         <strong>${escapeHtml(contentText('labels.productDetail', 'Chi tiết sản phẩm'))}</strong>
@@ -609,6 +671,7 @@ function renderProductCard(product, showWishlist) {
                 <div class="product-info p-4">
                     <span class="text-xs font-extrabold uppercase text-rose-600">${escapeHtml(product.displayCategory)}</span>
                     <h3 class="text-base font-extrabold leading-snug">${escapeHtml(product.name)}</h3>
+                    ${colorSelect}
                     ${sizeSelect}
                     <div class="product-bottom">
                         ${priceHtml}
@@ -625,10 +688,14 @@ function renderProductDetail(productId = currentDetailProductId) {
     const product = products.find((item) => Number(item.id) === normalizedId) || products[0];
     if (!product) return;
     currentDetailProductId = Number(product.id);
+    if (window.location.pathname.endsWith('/product.html')) {
+        document.title = `${product.name} | Shop Anh Thuận`;
+    }
 
     const detailCard = document.querySelector('.detail-card');
     const detailButton = document.querySelector('.add-detail-cart');
     const sizeList = document.querySelector('.detail-card .size-list');
+    const colorList = document.querySelector('.detail-card .color-list');
     const title = document.querySelector('.detail-card h2');
     const price = document.querySelector('.detail-price');
     const desc = document.querySelector('.detail-desc');
@@ -672,6 +739,101 @@ function renderProductDetail(productId = currentDetailProductId) {
             return `<button type="button" data-size="${escapeAttr(size)}"${selected}${disabled} title="${escapeAttr(stockLabel)}">${escapeHtml(size)}</button>`;
         }).join('');
     }
+
+    if (colorList) {
+        const colors = getProductColors(product);
+        const optionGroup = colorList.closest('.detail-option-group');
+        if (optionGroup) optionGroup.hidden = !colors.length;
+        colorList.innerHTML = colors.map((color) => {
+            const stock = getColorTotalStock(product, color);
+            return `<button type="button" data-color="${escapeAttr(color)}"${stock <= 0 ? ' disabled' : ''}>${escapeHtml(color)}</button>`;
+        }).join('');
+    }
+
+    if (sizeList) {
+        const optionGroup = sizeList.closest('.detail-option-group');
+        if (optionGroup) optionGroup.hidden = !getProductSizes(product).length;
+    }
+
+    selectFirstAvailableVariant(product);
+    renderVariantInventory(product);
+    updateDetailVariantState(product);
+}
+
+function selectFirstAvailableVariant(product) {
+    const colors = getProductColors(product);
+    const sizes = getProductSizes(product);
+    const colorButtons = Array.from(document.querySelectorAll('.detail-card .color-list button'));
+    const sizeButtons = Array.from(document.querySelectorAll('.detail-card .size-list button'));
+    colorButtons.forEach((button) => button.classList.remove('selected'));
+    sizeButtons.forEach((button) => button.classList.remove('selected'));
+
+    for (const color of colors.length ? colors : ['']) {
+        for (const size of sizes.length ? sizes : ['']) {
+            if (getVariantStock(product, color, size) <= 0) continue;
+            colorButtons.find((button) => button.dataset.color === color)?.classList.add('selected');
+            sizeButtons.find((button) => button.dataset.size === size)?.classList.add('selected');
+            return;
+        }
+    }
+}
+
+function updateDetailVariantState(product) {
+    const selectedColor = document.querySelector('.detail-card .color-list button.selected')?.dataset.color || '';
+    const selectedSize = document.querySelector('.detail-card .size-list button.selected')?.dataset.size || '';
+    const stock = getVariantStock(product, selectedColor, selectedSize);
+    const status = document.getElementById('detailVariantStatus');
+    const detailButton = document.querySelector('.add-detail-cart');
+    const selectionComplete = (!getProductColors(product).length || selectedColor) &&
+        (!getProductSizes(product).length || selectedSize);
+
+    if (status) {
+        status.textContent = selectionComplete
+            ? (stock > 0 ? `Còn ${stock} sản phẩm cho lựa chọn này` : 'Biến thể này đã hết hàng')
+            : 'Chọn đầy đủ màu và kích cỡ để xem tồn kho';
+        status.classList.toggle('sold-out', selectionComplete && stock <= 0);
+    }
+
+    if (detailButton) {
+        detailButton.disabled = !selectionComplete || stock <= 0;
+    }
+
+    document.querySelectorAll('.detail-card .size-list button').forEach((button) => {
+        const size = button.dataset.size || '';
+        button.disabled = getVariantStock(product, selectedColor, size) <= 0;
+    });
+}
+
+function renderVariantInventory(product) {
+    const container = document.getElementById('variantInventory');
+    if (!container) return;
+
+    const colors = getProductColors(product);
+    const sizes = getProductSizes(product);
+    const colorValues = colors.length ? colors : ['Không phân màu'];
+    const sizeValues = sizes.length ? sizes : ['—'];
+
+    container.innerHTML = `
+        <div class="variant-stock-head">
+            <strong>Tồn kho theo biến thể</strong>
+            <span>${colorValues.length * sizeValues.length} loại</span>
+        </div>
+        <div class="variant-stock-table-wrap">
+            <table class="variant-stock-table">
+                <thead><tr><th>Màu</th><th>Kích cỡ</th><th>Số lượng</th></tr></thead>
+                <tbody>
+                    ${colorValues.flatMap((color) => sizeValues.map((size) => {
+        const stock = getVariantStock(
+            product,
+            colors.length ? color : '',
+            sizes.length ? size : ''
+        );
+        return `<tr><td>${escapeHtml(color)}</td><td>${escapeHtml(size)}</td><td><strong>${stock}</strong></td></tr>`;
+    })).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
 }
 
 function renderDetailGallery(gallery, product) {
@@ -774,6 +936,18 @@ function addProductFromButton(button) {
     }
 
     let size = '';
+    let color = '';
+    if (getProductColors(product).length) {
+        color = button.classList.contains('add-detail-cart')
+            ? (document.querySelector('.detail-card .color-list button.selected')?.dataset.color || '')
+            : (productContainer?.querySelector('.product-color-select')?.value || '');
+
+        if (!color) {
+            showToast('Vui lòng chọn màu', 'error');
+            return;
+        }
+    }
+
     if (requiresSize(product)) {
         if (button.classList.contains('add-detail-cart')) {
             size = document.querySelector('.detail-card .size-list button.selected')?.dataset.size || '';
@@ -786,23 +960,26 @@ function addProductFromButton(button) {
             return;
         }
 
-        if (Number(product.stock?.[String(size)] || 0) <= 0) {
+        if (getVariantStock(product, color, size) <= 0) {
             showToast(contentText('messages.cart.sizeSoldOut', 'Kích cỡ này tạm hết hàng'), 'error');
             return;
         }
     }
 
-    addToCart(product, size);
+    addToCart(product, size, color);
 }
 
-function addToCart(product, size) {
+function addToCart(product, size, color = '') {
     const productId = Number(product.id);
     const normalizedSize = size ? String(size) : '';
+    const normalizedColor = color ? String(color) : '';
     const item = cart.find((entry) => {
-        return Number(entry.productId) === productId && String(entry.size || '') === normalizedSize;
+        return Number(entry.productId) === productId &&
+            String(entry.size || '') === normalizedSize &&
+            String(entry.color || '') === normalizedColor;
     });
 
-    if (!canAddQuantity(product, normalizedSize, item ? item.quantity : 0)) {
+    if (!canAddQuantity(product, normalizedSize, normalizedColor, item ? item.quantity : 0)) {
         showToast(contentText('messages.cart.quantityOverStock', 'Số lượng vượt quá tồn kho'), 'error');
         return;
     }
@@ -814,6 +991,7 @@ function addToCart(product, size) {
             productId,
             name: product.name,
             size: normalizedSize || null,
+            color: normalizedColor || null,
             quantity: 1,
             price: getProductSalePrice(product)
         });
@@ -831,7 +1009,7 @@ function changeCartQty(index, change) {
 
     const product = products.find((entry) => Number(entry.id) === Number(item.productId));
 
-    if (change > 0 && product && !canAddQuantity(product, item.size || '', item.quantity)) {
+    if (change > 0 && product && !canAddQuantity(product, item.size || '', item.color || '', item.quantity)) {
         showToast(contentText('messages.cart.quantityOverStock', 'Số lượng vượt quá tồn kho'), 'error');
         return;
     }
@@ -911,9 +1089,10 @@ function renderCart() {
         return sum + Number(item.price || 0) * Number(item.quantity || 0);
     }, 0);
 
-    cartCount.textContent = totalQty;
-    subtotal.textContent = currency.format(total);
-    checkoutMessage.textContent = '';
+    if (cartCount) cartCount.textContent = totalQty;
+    if (subtotal) subtotal.textContent = currency.format(total);
+    if (checkoutMessage) checkoutMessage.textContent = '';
+    if (!cartItems) return;
 
     if (!cart.length) {
         cartItems.innerHTML = `<p class="empty-cart">${escapeHtml(contentText('messages.cart.empty', 'Chưa có sản phẩm trong giỏ.'))}</p>`;
@@ -928,6 +1107,7 @@ function renderCart() {
         <div class="cart-line">
             <div>
                 <strong>${escapeHtml(item.name)}</strong>
+                ${item.color ? `<small>Màu: ${escapeHtml(item.color)}</small>` : ''}
                 ${item.size ? `<small>${escapeHtml(sizeLabel)}: ${escapeHtml(item.size)}</small>` : ''}
                 <span>${currency.format(Number(item.price) || 0)}</span>
             </div>
@@ -941,6 +1121,7 @@ function renderCart() {
 }
 
 function renderSearch(query) {
+    if (!searchResults) return;
     const normalized = normalizeSearchText(query);
     const matches = products.filter((product) => {
         const categoryLabel = getSearchCategoryLabel(product);
@@ -981,6 +1162,13 @@ function scrollToProduct(productId) {
     if (modal) modal.hide();
 
     const target = document.getElementById('product-detail') || card;
+    if (!document.getElementById('product-detail')) {
+        window.location.href = `/product.html?id=${encodeURIComponent(productId)}`;
+        return;
+    }
+    if (window.location.pathname.endsWith('/product.html')) {
+        window.history.pushState({}, '', `/product.html?id=${encodeURIComponent(productId)}`);
+    }
     if (target) {
         target.scrollIntoView({
             behavior: 'smooth',
@@ -1049,8 +1237,11 @@ async function startCodCheckout() {
 
     if (!hasCompleteProfile(currentUser)) {
         checkoutMessage.textContent = contentText('messages.cod.profileMissing', 'Vui lòng cập nhật tên, số điện thoại và địa chỉ ở tài khoản.');
-        location.hash = 'account';
-        profileFullName.focus();
+        if (profileFullName) {
+            profileFullName.focus();
+        } else {
+            window.location.href = '/profile.html';
+        }
         return;
     }
 
@@ -1083,7 +1274,7 @@ async function startCodCheckout() {
         syncCartWithProducts();
         renderProducts();
         renderProductDetail();
-        renderSearch(searchInput.value);
+        renderSearch(searchInput?.value || '');
         await loadOrderHistory();
         if (currentUser.role === 'Admin') {
             await loadAdminOrders();
@@ -1099,6 +1290,7 @@ function getCheckoutItems() {
         return {
             productId: item.productId,
             size: item.size,
+            color: item.color,
             quantity: item.quantity
         };
     });
@@ -1149,6 +1341,10 @@ async function submitAuth(url, payload, messageElement) {
 }
 
 function showAuthModal() {
+    if (!authModal || typeof bootstrap === 'undefined') {
+        window.location.href = '/profile.html';
+        return;
+    }
     setAuthMode('login');
     bootstrap.Modal.getOrCreateInstance(authModal).show();
 }
@@ -1228,42 +1424,64 @@ function switchProfileTab(tab) {
 }
 
 function updateAccountUi() {
+    adminPageLinks.forEach((link) => {
+        link.hidden = currentUser?.role !== 'Admin';
+    });
+
     if (!currentUser?.token) {
         stopAdminOrderNotifications();
         stopUserOrderNotifications();
-        accountStatus.textContent = contentText('messages.account.loggedOut', 'Chưa đăng nhập');
-        openAuthButton.hidden = false;
-        logoutButton.hidden = true;
+        if (accountStatus) accountStatus.textContent = contentText('messages.account.loggedOut', 'Chưa đăng nhập');
+        if (openAuthButton) openAuthButton.hidden = false;
+        if (logoutButton) logoutButton.hidden = true;
         if (profileLoggedOut) profileLoggedOut.hidden = false;
         if (profileLoggedIn) profileLoggedIn.hidden = true;
         if (profileForm) profileForm.hidden = false;
-        profileMessage.textContent = '';
-        orderHistoryPanel.hidden = true;
-        orderHistoryList.innerHTML = '';
-        orderHistoryMessage.textContent = '';
-        adminOrdersBody.innerHTML = '';
-        adminOrdersMessage.textContent = '';
-        adminPanel.hidden = true;
+        if (profileMessage) profileMessage.textContent = '';
+        if (orderHistoryPanel) orderHistoryPanel.hidden = true;
+        if (orderHistoryList) orderHistoryList.innerHTML = '';
+        if (orderHistoryMessage) orderHistoryMessage.textContent = '';
+        if (adminOrdersBody) adminOrdersBody.innerHTML = '';
+        if (adminOrdersMessage) adminOrdersMessage.textContent = '';
+        if (adminPanel) adminPanel.hidden = true;
+        if (adminAccessMessage) adminAccessMessage.hidden = false;
         return;
     }
 
-    accountStatus.textContent = `${currentUser.username} - ${getRoleLabel(currentUser.role)}`;
-    openAuthButton.hidden = true;
-    logoutButton.hidden = false;
+    if (accountStatus) accountStatus.textContent = `${currentUser.username} - ${getRoleLabel(currentUser.role)}`;
+    if (openAuthButton) openAuthButton.hidden = true;
+    if (logoutButton) logoutButton.hidden = false;
     if (profileLoggedOut) profileLoggedOut.hidden = true;
     if (profileLoggedIn) profileLoggedIn.hidden = false;
     if (profileForm) profileForm.hidden = false;
-    profileFullName.value = currentUser.fullName || '';
-    profilePhone.value = currentUser.phone || '';
-    profileAddress.value = currentUser.address || '';
+    if (profileFullName) profileFullName.value = currentUser.fullName || '';
+    if (profilePhone) profilePhone.value = currentUser.phone || '';
+    if (profileAddress) profileAddress.value = currentUser.address || '';
     updateProfileSummary();
     switchProfileTab('info');
-    orderHistoryPanel.hidden = false;
-    startUserOrderNotifications();
-    adminPanel.hidden = currentUser.role !== 'Admin';
+    if (orderHistoryPanel) orderHistoryPanel.hidden = false;
+    const isProfilePage = window.location.pathname.endsWith('/profile.html');
+    if (orderHistoryList && isProfilePage) {
+        startUserOrderNotifications();
+    } else {
+        stopUserOrderNotifications();
+    }
+    const isAdminPage = window.location.pathname.endsWith('/admin.html');
+    if (adminPanel) adminPanel.hidden = currentUser.role !== 'Admin' || !isAdminPage;
+    if (adminAccessMessage) {
+        adminAccessMessage.hidden = currentUser.role === 'Admin';
+        const message = adminAccessMessage.querySelector('[data-admin-access-text]');
+        if (message && currentUser.role !== 'Admin') {
+            message.textContent = 'Tài khoản hiện tại không có quyền quản trị.';
+        }
+    }
     if (currentUser.role === 'Admin') {
         renderAdminStats();
-        startAdminOrderNotifications();
+        if (adminOrdersBody && isAdminPage) {
+            startAdminOrderNotifications();
+        } else {
+            stopAdminOrderNotifications();
+        }
     } else {
         stopAdminOrderNotifications();
     }
@@ -1311,7 +1529,11 @@ function renderAdminStats(orders = null) {
 
     if (!orders) return;
 
-    const revenue = orders.reduce((sum, order) => sum + (Number(order.amount) || 0), 0);
+    const revenue = orders.reduce((sum, order) => {
+        return normalizeOrderFulfillmentStatus(order.fulfillmentStatus) === CANCELLED_FULFILLMENT_STATUS
+            ? sum
+            : sum + (Number(order.amount) || 0);
+    }, 0);
     if (statOrderCount) statOrderCount.textContent = orders.length;
     if (statRevenue) statRevenue.textContent = currency.format(revenue);
 }
@@ -1336,7 +1558,7 @@ function updateAdminImagePreview() {
 }
 
 async function loadOrderHistory() {
-    if (!currentUser?.token) return;
+    if (!currentUser?.token || !orderHistoryList || !orderHistoryMessage) return;
 
     orderHistoryMessage.textContent = contentText('messages.orders.loading', 'Đang tải đơn hàng...');
 
@@ -1381,12 +1603,21 @@ function renderOrderHistory(orders) {
         const createdAt = order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '';
         const itemRows = items.map((item) => {
             const size = item.size ? ` - Kích cỡ ${escapeHtml(item.size)}` : '';
-            return `<li>${escapeHtml(item.name)}${size} x ${Number(item.quantity) || 0}</li>`;
+            const color = item.color ? ` - Màu ${escapeHtml(item.color)}` : '';
+            return `<li>${escapeHtml(item.name)}${color}${size} x ${Number(item.quantity) || 0}</li>`;
         }).join('');
         const fulfillmentStatus = normalizeOrderFulfillmentStatus(order.fulfillmentStatus);
         const receivedButton = fulfillmentStatus === 'SHIPPING'
             ? `<button type="button" class="order-received-button" data-order-received="${Number(order.id)}">
                 <i class="bi bi-box2-heart"></i> Xác nhận đã nhận hàng
+               </button>`
+            : '';
+        const canCurrentUserCancel = currentUser?.role === 'Admin'
+            ? fulfillmentStatus === 'ORDERED'
+            : ['ORDERED', 'PREPARING'].includes(fulfillmentStatus);
+        const cancelButton = canCurrentUserCancel
+            ? `<button type="button" class="order-cancel-button" data-order-cancel="${Number(order.id)}" data-cancel-actor="customer">
+                <i class="bi bi-x-circle"></i> Hủy đơn hàng
                </button>`
             : '';
 
@@ -1406,6 +1637,7 @@ function renderOrderHistory(orders) {
                     <strong>${currency.format(Number(order.amount) || 0)}</strong>
                 </footer>
                 ${receivedButton}
+                ${cancelButton}
             </article>
         `;
     }).join('');
@@ -1413,6 +1645,10 @@ function renderOrderHistory(orders) {
 }
 
 function renderOrderFulfillmentProgress(status) {
+    if (status === CANCELLED_FULFILLMENT_STATUS) {
+        return '<div class="order-cancelled-state"><i class="bi bi-x-circle-fill"></i> Đơn hàng đã hủy</div>';
+    }
+
     const currentIndex = ORDER_FULFILLMENT_STEPS.findIndex((step) => step.value === status);
 
     return `
@@ -1436,12 +1672,14 @@ function renderOrderFulfillmentProgress(status) {
 
 function normalizeOrderFulfillmentStatus(value) {
     const normalized = String(value || 'ORDERED').trim().toUpperCase();
+    if (normalized === CANCELLED_FULFILLMENT_STATUS) return normalized;
     return ORDER_FULFILLMENT_STEPS.some((step) => step.value === normalized)
         ? normalized
         : 'ORDERED';
 }
 
 function getOrderFulfillmentLabel(status) {
+    if (status === CANCELLED_FULFILLMENT_STATUS) return 'Đã hủy';
     return ORDER_FULFILLMENT_STEPS.find((step) => step.value === status)?.label || 'Đã đặt hàng';
 }
 
@@ -1584,8 +1822,55 @@ async function confirmUserOrderReceived(orderId) {
     }
 }
 
+async function cancelOrderFromUi(orderId, actor) {
+    if (!currentUser?.token || !orderId) return;
+
+    const isAdminCancel = actor === 'admin';
+    const confirmation = isAdminCancel
+        ? 'Hủy đơn hàng này trước khi xác nhận? Tồn kho sẽ được hoàn lại.'
+        : 'Bạn chắc chắn muốn hủy đơn hàng này? Tồn kho sẽ được hoàn lại.';
+    if (!confirm(confirmation)) return;
+
+    const button = document.querySelector(`[data-order-cancel="${orderId}"][data-cancel-actor="${actor}"]`);
+    if (button) button.disabled = true;
+
+    try {
+        const response = await fetch(`/api/orders/${orderId}/cancel`, {
+            method: 'POST',
+            headers: authHeaders(false)
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.order) {
+            showToast(data.message || 'Không thể hủy đơn hàng.', 'error');
+            if (button) button.disabled = false;
+            return;
+        }
+
+        if (isAdminCancel) {
+            adminOrders = adminOrders.map((order) => {
+                return Number(order.id) === Number(orderId) ? data.order : order;
+            });
+            renderAdminOrders(adminOrders);
+        } else {
+            userOrders = userOrders.map((order) => {
+                return Number(order.id) === Number(orderId) ? data.order : order;
+            });
+            renderOrderHistory(userOrders);
+        }
+
+        await loadProducts();
+        renderProducts();
+        renderProductDetail();
+        showToast('Đã hủy đơn hàng và hoàn lại tồn kho.', 'success');
+    } catch {
+        showToast('Không kết nối được server.', 'error');
+        if (button) button.disabled = false;
+    }
+}
+
 async function loadAdminOrders() {
-    if (!currentUser?.token || currentUser.role !== 'Admin') return null;
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !adminOrdersBody || !adminOrdersMessage) return null;
 
     adminOrdersMessage.textContent = contentText('messages.orders.loading', 'Đang tải đơn hàng...');
 
@@ -1871,9 +2156,10 @@ function renderAdminOrders(orders) {
         const items = Array.isArray(order.items) ? order.items : [];
         const itemRows = items.map((item) => {
             const size = item.size ? `Kích cỡ ${escapeHtml(item.size)} - ` : '';
+            const color = item.color ? `Màu ${escapeHtml(item.color)} - ` : '';
             return `
                 <span>${escapeHtml(item.name)} x ${Number(item.quantity) || 0}</span>
-                <small>${size}${currency.format(Number(item.unitPrice) || 0)}</small>
+                <small>${color}${size}${currency.format(Number(item.unitPrice) || 0)}</small>
             `;
         }).join('');
         const newOrderBadge = order.isNew
@@ -1923,9 +2209,14 @@ function renderAdminOrders(orders) {
 function getAdminFulfillmentAction(orderId, status) {
     if (status === 'ORDERED') {
         return `
-            <button type="button" data-order-id="${Number(orderId)}" data-order-fulfillment="PREPARING">
-                <i class="bi bi-box-seam"></i> Xác nhận & chuẩn bị
-            </button>
+            <div class="admin-order-actions">
+                <button type="button" data-order-id="${Number(orderId)}" data-order-fulfillment="PREPARING">
+                    <i class="bi bi-box-seam"></i> Xác nhận & chuẩn bị
+                </button>
+                <button type="button" class="danger" data-order-cancel="${Number(orderId)}" data-cancel-actor="admin">
+                    <i class="bi bi-x-circle"></i> Hủy đơn
+                </button>
+            </div>
         `;
     }
 
@@ -1939,6 +2230,10 @@ function getAdminFulfillmentAction(orderId, status) {
 
     if (status === 'SHIPPING') {
         return '<small>Chờ người nhận xác nhận</small>';
+    }
+
+    if (status === CANCELLED_FULFILLMENT_STATUS) {
+        return '<small class="cancelled"><i class="bi bi-x-circle-fill"></i> Đơn đã hủy</small>';
     }
 
     return '<small><i class="bi bi-check-circle-fill"></i> Đơn đã hoàn tất</small>';
@@ -1997,6 +2292,7 @@ async function submitAdminProduct(event) {
     const id = document.getElementById('adminProductId').value;
     const category = document.getElementById('adminCategory').value;
     const sizes = splitList(document.getElementById('adminSizes').value);
+    const colors = splitList(document.getElementById('adminColors')?.value);
     const stockInput = document.getElementById('adminStock').value;
     const images = splitImageList(document.getElementById('adminImage').value);
     const payload = {
@@ -2008,8 +2304,10 @@ async function submitAdminProduct(event) {
         image: images[0] || '',
         images: images.slice(1),
         sizes,
-        stock: parseStock(stockInput),
-        totalStock: sizes.length ? null : parseTotalStock(stockInput),
+        colors,
+        stock: colors.length ? {} : parseStock(stockInput),
+        variantStock: colors.length ? parseVariantStock(stockInput, colors, sizes) : {},
+        totalStock: sizes.length || colors.length ? null : parseTotalStock(stockInput),
         section: document.getElementById('adminSection').value
     };
 
@@ -2034,7 +2332,7 @@ async function submitAdminProduct(event) {
         syncCartWithProducts();
         renderProducts();
         renderProductDetail();
-        renderSearch(searchInput.value);
+        renderSearch(searchInput?.value || '');
         renderCart();
         renderAdminProducts();
         resetAdminForm();
@@ -2082,11 +2380,13 @@ function fillAdminForm(productId) {
     document.getElementById('adminSalePercent').value = getProductSalePercent(product);
     document.getElementById('adminImage').value = getProductImages(product).join('\n');
     document.getElementById('adminSizes').value = getProductSizes(product).join(',');
+    const adminColors = document.getElementById('adminColors');
+    if (adminColors) adminColors.value = getProductColors(product).join(',');
     document.getElementById('adminStock').value = formatStock(product);
     document.getElementById('adminSection').value = product.section || 'products';
     adminMessage.textContent = contentText('messages.admin.editing', 'Đang sửa sản phẩm.');
     updateAdminImagePreview();
-    adminPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    adminPanel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 async function deleteAdminProduct(productId) {
@@ -2110,7 +2410,7 @@ async function deleteAdminProduct(productId) {
         saveCart();
         renderProducts();
         renderProductDetail();
-        renderSearch(searchInput.value);
+        renderSearch(searchInput?.value || '');
         renderCart();
         renderAdminProducts();
         adminMessage.textContent = contentText('messages.admin.deleted', 'Đã xóa sản phẩm.');
@@ -2163,19 +2463,53 @@ function requiresSize(product) {
     return ['shoes', 'clothing'].includes(product.category) || getProductSizes(product).length > 0;
 }
 
-function canAddQuantity(product, size, currentQuantity) {
-    if (!requiresSize(product)) {
+function canAddQuantity(product, size, color, currentQuantity) {
+    if (getProductColors(product).length && !color) return false;
+    if (requiresSize(product) && !size) return false;
+
+    if (!getProductColors(product).length && !requiresSize(product)) {
         const totalStock = getProductTotalStock(product);
         return totalStock === null || currentQuantity + 1 <= totalStock;
     }
 
-    if (!size) return false;
-    const stock = Number(product.stock?.[String(size)] || 0);
-    return currentQuantity + 1 <= stock;
+    return currentQuantity + 1 <= getVariantStock(product, color, size);
 }
 
 function getProductSizes(product) {
     return Array.isArray(product.sizes) ? product.sizes.map((size) => String(size)) : [];
+}
+
+function getProductColors(product) {
+    return Array.isArray(product.colors)
+        ? product.colors.map((color) => String(color).trim()).filter(Boolean)
+        : [];
+}
+
+function getVariantStock(product, color, size) {
+    const colors = getProductColors(product);
+    if (colors.length) {
+        const sizeKey = size || '__default__';
+        return Math.max(0, Number(product.variantStock?.[color]?.[sizeKey]) || 0);
+    }
+
+    if (size) {
+        return Math.max(0, Number(product.stock?.[String(size)]) || 0);
+    }
+
+    const totalStock = getProductTotalStock(product);
+    return totalStock === null ? Number.MAX_SAFE_INTEGER : totalStock;
+}
+
+function getColorTotalStock(product, color) {
+    const sizes = getProductSizes(product);
+    if (!sizes.length) return getVariantStock(product, color, '');
+    return sizes.reduce((sum, size) => sum + getVariantStock(product, color, size), 0);
+}
+
+function getSizeTotalStock(product, size) {
+    const colors = getProductColors(product);
+    if (!colors.length) return getVariantStock(product, '', size);
+    return colors.reduce((sum, color) => sum + getVariantStock(product, color, size), 0);
 }
 
 function getProductTotalStock(product) {
@@ -2255,6 +2589,16 @@ function getProductDescription(product) {
 }
 
 function getStockSummary(product) {
+    const colors = getProductColors(product);
+    if (colors.length) {
+        const variants = colors.flatMap((color) => {
+            const sizes = getProductSizes(product);
+            if (!sizes.length) return [`${color}: ${getVariantStock(product, color, '')}`];
+            return sizes.map((size) => `${color}/${size}: ${getVariantStock(product, color, size)}`);
+        });
+        return `${contentText('labels.stock', 'Tồn kho')}: ${variants.join(', ')}`;
+    }
+
     if (requiresSize(product)) {
         const available = getProductSizes(product)
             .map((size) => `${size}: ${Number(product.stock?.[String(size)] || 0)}`)
@@ -2270,6 +2614,11 @@ function getStockSummary(product) {
 }
 
 function isProductOutOfStock(product) {
+    const colors = getProductColors(product);
+    if (colors.length) {
+        return colors.every((color) => getColorTotalStock(product, color) <= 0);
+    }
+
     if (requiresSize(product)) {
         return getProductSizes(product).every((size) => Number(product.stock?.[String(size)] || 0) <= 0);
     }
@@ -2311,12 +2660,54 @@ function parseStock(value) {
         }, {});
 }
 
+function parseVariantStock(value, colors, sizes) {
+    const sizeKeys = sizes.length ? sizes : ['__default__'];
+    const result = colors.reduce((stock, color) => {
+        stock[color] = sizeKeys.reduce((entries, size) => {
+            entries[size] = 0;
+            return entries;
+        }, {});
+        return stock;
+    }, {});
+
+    String(value || '')
+        .split(/[\r\n,]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .forEach((entry) => {
+            const separator = entry.lastIndexOf(':');
+            if (separator < 0) return;
+
+            const variant = entry.slice(0, separator).trim();
+            const quantity = Math.max(0, Number(entry.slice(separator + 1).trim()) || 0);
+            const [color, rawSize = '-'] = variant.split('|').map((part) => part.trim());
+            const size = !rawSize || rawSize === '-' ? '__default__' : rawSize;
+
+            if (result[color] && Object.prototype.hasOwnProperty.call(result[color], size)) {
+                result[color][size] = quantity;
+            }
+        });
+
+    return result;
+}
+
 function parseTotalStock(value) {
     const totalStock = Number(String(value || '').trim());
     return Number.isFinite(totalStock) ? Math.max(0, Math.trunc(totalStock)) : null;
 }
 
 function formatStock(product) {
+    const colors = getProductColors(product);
+    if (colors.length) {
+        const sizes = getProductSizes(product);
+        return colors.flatMap((color) => {
+            if (!sizes.length) {
+                return [`${color}|-:${getVariantStock(product, color, '')}`];
+            }
+            return sizes.map((size) => `${color}|${size}:${getVariantStock(product, color, size)}`);
+        }).join(', ');
+    }
+
     const sizes = getProductSizes(product);
     if (!sizes.length) {
         const totalStock = getProductTotalStock(product);
@@ -2355,6 +2746,7 @@ function normalizeCartItem(item) {
         productId,
         name: String(item.name || ''),
         size: item.size === null || item.size === undefined ? null : String(item.size),
+        color: item.color === null || item.color === undefined ? null : String(item.color),
         quantity,
         price: Number(item.price) || 0
     };

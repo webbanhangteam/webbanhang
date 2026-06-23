@@ -41,11 +41,15 @@
                     <span>Shop Anh Thuận đẹp trai</span>
                 </a>
                 <div class="header-actions">
+                    <a class="admin-header-link" href="/admin.html" data-admin-page-link hidden>
+                        <i class="bi bi-speedometer2"></i>
+                        <span>Quản trị</span>
+                    </a>
                     <button class="icon-btn" type="button" data-bs-toggle="modal" data-bs-target="#searchModal"
                         aria-label="Tìm kiếm">
                         <i class="bi bi-search"></i>
                     </button>
-                    <a class="icon-btn d-none d-sm-inline-flex" href="#account" id="accountButton"
+                    <a class="icon-btn d-none d-sm-inline-flex" href="/profile.html" id="accountButton"
                         aria-label="Tài khoản">
                         <i class="bi bi-person"></i>
                     </a>
@@ -75,7 +79,8 @@
                 <p class="menu-label">Khám phá</p>
                 <a href="#album">Bộ sưu tập</a>
                 <a href="#blog">Cẩm nang</a>
-                <a href="#account">Tài khoản</a>
+                <a href="/profile.html">Tài khoản</a>
+                <a href="/admin.html" data-admin-page-link hidden>Trang quản trị</a>
             </div>
             <div class="menu-section">
                 <p class="menu-label">Hỗ trợ</p>
@@ -187,7 +192,7 @@
         </section>
 
         <!-- ===== PRODUCT DETAIL (REDESIGNED) ===== -->
-        <section id="product-detail" class="section page-pad detail-section">
+        <section id="product-detail" class="section page-pad detail-section" hidden>
             <div class="detail-breadcrumb">
                 <a href="#home">Trang chủ</a>
                 <i class="bi bi-chevron-right"></i>
@@ -338,7 +343,7 @@
         </section>
 
         <!-- ===== PROFILE SECTION (REDESIGNED) ===== -->
-        <section id="account" class="profile-section page-pad">
+        <section id="account" class="profile-section page-pad" hidden>
             <div id="profileLoggedOut" class="account-band">
                 <div>
                     <p>Tài khoản thành viên</p>
@@ -561,7 +566,7 @@
         <div class="footer-grid">
             <div class="footer-brand">
                 <a class="brand" href="#home">
-                    <img src="/image/logo.png" alt="Cửa hàng Anh Thuận" decoding="async">
+                    <img src="/image/logo-nonbg.png" alt="Cửa hàng Anh Thuận" decoding="async">
                     <span>CỬA HÀNG TĂNG THUẬN</span>
                 </a>
                 <p>Sắp tới bán đồ tại Hà Nội.</p>
@@ -629,7 +634,7 @@
                     <div class="auth-layout">
                         <div class="auth-brand-side">
                             <a class="brand" href="#home">
-                                <img src="/image/logo-nonbg.png" alt="Cửa hàng Anh Thuận" decoding="async">
+                                <img src="/image/logo.png" alt="Cửa hàng Anh Thuận" decoding="async">
                                 <span>Cửa hàng Anh Thuận</span>
                             </a>
                             <p class="auth-brand-tagline">

@@ -15,12 +15,22 @@
       42,
       43
     ],
+    "colors": ["Trắng"],
     "stock": {
       "39": 5,
       "40": 8,
       "41": 4,
       "42": 3,
       "43": 2
+    },
+    "variantStock": {
+      "Trắng": {
+        "39": 5,
+        "40": 8,
+        "41": 4,
+        "42": 3,
+        "43": 2
+      }
     }
   },
   {
@@ -39,12 +49,22 @@
       42,
       43
     ],
+    "colors": ["Trắng/Đen"],
     "stock": {
       "39": 4,
       "40": 6,
       "41": 5,
       "42": 2,
       "43": 1
+    },
+    "variantStock": {
+      "Trắng/Đen": {
+        "39": 4,
+        "40": 6,
+        "41": 5,
+        "42": 2,
+        "43": 1
+      }
     }
   },
   {
@@ -63,12 +83,22 @@
       42,
       43
     ],
+    "colors": ["Đỏ/Đen"],
     "stock": {
       "39": 2,
       "40": 4,
       "41": 4,
       "42": 3,
       "43": 1
+    },
+    "variantStock": {
+      "Đỏ/Đen": {
+        "39": 2,
+        "40": 4,
+        "41": 4,
+        "42": 3,
+        "43": 1
+      }
     }
   },
   {
@@ -87,12 +117,22 @@
       41,
       42
     ],
+    "colors": ["Kem"],
     "stock": {
       "38": 3,
       "39": 5,
       "40": 4,
       "41": 3,
       "42": 2
+    },
+    "variantStock": {
+      "Kem": {
+        "38": 3,
+        "39": 5,
+        "40": 4,
+        "41": 3,
+        "42": 2
+      }
     }
   },
   {
@@ -102,7 +142,7 @@
     "displayCategory": "Áo thể thao",
     "price": 790000,
     "salePercent": 20,
-    "image": "https://www.vanauthentic.com/watermark/product/750x750x2/upload/product/da49e087c0a447919bca4766df60267a_7564.jpeg",
+    "image": "/image/products/England.avif",
     "section": "products",
     "sizes": [
       "S",
@@ -110,11 +150,16 @@
       "L",
       "XL"
     ],
+    "colors": ["Trắng", "Đỏ"],
     "stock": {
-      "S": 5,
-      "M": 8,
-      "L": 6,
-      "XL": 3
+      "S": 7,
+      "M": 11,
+      "L": 8,
+      "XL": 5
+    },
+    "variantStock": {
+      "Trắng": { "S": 5, "M": 8, "L": 6, "XL": 3 },
+      "Đỏ": { "S": 2, "M": 3, "L": 2, "XL": 2 }
     }
   },
   {
@@ -127,8 +172,10 @@
     "image": "https://images.unsplash.com/photo-1594223274512-ad4803739b7c?auto=format&fit=crop&w=900&q=84",
     "section": "products",
     "sizes": [],
+    "colors": ["Đen"],
     "stock": {},
-    "totalStock": 12
+    "variantStock": { "Đen": { "__default__": 12 } },
+    "totalStock": null
   },
   {
     "id": 7,
@@ -140,8 +187,10 @@
     "image": "https://images.unsplash.com/photo-1529958030586-3aae4ca485ff?auto=format&fit=crop&w=900&q=84",
     "section": "products",
     "sizes": [],
+    "colors": ["Xám"],
     "stock": {},
-    "totalStock": 18
+    "variantStock": { "Xám": { "__default__": 18 } },
+    "totalStock": null
   },
   {
     "id": 8,
@@ -158,11 +207,16 @@
       "L",
       "XL"
     ],
+    "colors": ["Đen", "Trắng"],
     "stock": {
-      "S": 6,
-      "M": 10,
-      "L": 8,
-      "XL": 4
+      "S": 10,
+      "M": 16,
+      "L": 13,
+      "XL": 7
+    },
+    "variantStock": {
+      "Đen": { "S": 6, "M": 10, "L": 8, "XL": 4 },
+      "Trắng": { "S": 4, "M": 6, "L": 5, "XL": 3 }
     }
   },
   {
@@ -177,8 +231,12 @@
     "sizes": [
       "41"
     ],
+    "colors": ["Mặc định"],
     "stock": {
       "41": 2
+    },
+    "variantStock": {
+      "Mặc định": { "41": 2 }
     }
   }
 ]

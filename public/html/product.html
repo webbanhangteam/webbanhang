@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Chi tiết sản phẩm, màu sắc, kích cỡ và tồn kho tại Shop Anh Thuận.">
+    <title>Chi tiết sản phẩm | Shop Anh Thuận</title>
+    <link rel="icon" type="image/png" href="/image/logo-nonbg.png?v=5">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/css/tailwind.css">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header class="site-header sticky-top">
+        <nav class="navbar navbar-light bg-white shadow-sm">
+            <div class="container-fluid page-pad nav-shell">
+                <a class="brand" href="/">
+                    <img src="/image/logo.png" alt="Shop Anh Thuận">
+                    <span>Shop Anh Thuận</span>
+                </a>
+                <div class="header-actions">
+                    <a class="admin-header-link" href="/admin.html" data-admin-page-link hidden><i class="bi bi-speedometer2"></i><span>Quản trị</span></a>
+                    <a class="icon-btn" href="/profile.html" id="accountButton" aria-label="Tài khoản"><i class="bi bi-person"></i></a>
+                    <button class="cart-trigger" type="button" data-bs-toggle="offcanvas" data-bs-target="#cartDrawer" aria-label="Giỏ hàng">
+                        <i class="bi bi-bag"></i><span id="cartCount">0</span>
+                    </button>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section id="product-detail" class="section page-pad detail-section standalone-page">
+            <div class="detail-breadcrumb">
+                <a href="/">Trang chủ</a><i class="bi bi-chevron-right"></i>
+                <span id="detailBreadcrumbName">Chi tiết sản phẩm</span>
+            </div>
+            <div class="detail-grid">
+                <div class="detail-gallery"></div>
+                <article class="detail-card">
+                    <span class="detail-category-badge" id="detailCategoryBadge">Sản phẩm</span>
+                    <h2>Đang tải sản phẩm...</h2>
+                    <div class="rating"><div class="stars"><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i><i class="bi bi-star-fill"></i></div><span>4.9</span></div>
+                    <div class="detail-price"></div>
+                    <p class="detail-desc"></p>
+
+                    <div class="detail-option-group">
+                        <p class="size-section-title">Chọn màu</p>
+                        <div class="color-list"></div>
+                    </div>
+                    <div class="detail-option-group">
+                        <p class="size-section-title">Chọn kích cỡ</p>
+                        <div class="size-list"></div>
+                    </div>
+                    <p id="detailVariantStatus" class="variant-status"></p>
+                    <button class="add-detail-cart" type="button"><i class="bi bi-bag-plus"></i> Thêm vào giỏ</button>
+                </article>
+            </div>
+
+            <div id="variantInventory" class="variant-inventory"></div>
+
+            <div class="detail-tabs-section">
+                <div class="detail-tabs-nav">
+                    <button type="button" class="active" data-detail-tab="description">Mô tả</button>
+                    <button type="button" data-detail-tab="policy">Chính sách</button>
+                </div>
+                <div class="detail-tab-pane active" id="detailTabDescription"></div>
+                <div class="detail-tab-pane" id="detailTabPolicy">
+                    <h3>Chính sách đổi trả</h3>
+                    <ul>
+                        <li>Đổi trả trong 7 ngày nếu sản phẩm lỗi.</li>
+                        <li>Hỗ trợ đổi kích cỡ lần đầu.</li>
+                        <li>Giao COD toàn quốc.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="related-products">
+                <h3 class="related-products-title">Sản phẩm liên quan</h3>
+                <div class="related-products-grid" id="relatedProductsGrid"></div>
+            </div>
+        </section>
+    </main>
+
+    <div class="offcanvas offcanvas-end cart-drawer" tabindex="-1" id="cartDrawer">
+        <div class="offcanvas-header">
+            <h2 class="offcanvas-title">Giỏ hàng</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Đóng"></button>
+        </div>
+        <div class="offcanvas-body">
+            <div id="cartItems" class="cart-items"></div>
+            <div class="drawer-summary">
+                <div><span>Tạm tính</span><strong id="subtotal">0đ</strong></div>
+                <p id="checkoutMessage" class="checkout-message"></p>
+                <button class="black-btn" type="button" id="momoCheckout">Thanh toán MoMo</button>
+                <button class="outline-btn" type="button" id="zaloCheckout">Thanh toán ZaloPay</button>
+                <button class="outline-btn" type="button" id="codCheckout">Thanh toán khi nhận hàng (COD)</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/script.js"></script>
+</body>
+</html>

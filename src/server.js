@@ -27,7 +27,7 @@ const sessions = new Map();
 const adminOrderEventClients = new Set();
 const userOrderEventClients = new Set();
 const userDataFile = path.join(root, 'data', 'DATA.txt');
-const fulfillmentStatuses = ['ORDERED', 'PREPARING', 'SHIPPING', 'DELIVERED'];
+const fulfillmentStatuses = ['ORDERED', 'PREPARING', 'SHIPPING', 'DELIVERED', 'CANCELLED'];
 
 const productsDataFile = path.join(root, 'data', 'products.json');
 const maxBodySize = parsePositiveNumber(process.env.MAX_BODY_SIZE, 1024 * 1024);
@@ -312,6 +312,30 @@ async function handleApi(req, res, requestUrl) {
     }
 
     notifyOrderFulfillmentChanged(result.order, req.requestId, 'admin');
+    sendJson(res, 200, { ok: true, order: result.order });
+    return;
+  }
+
+  const cancelOrderMatch = routeUrl.pathname.match(/^\/api\/orders\/(\d+)\/cancel$/);
+  if (req.method === 'POST' && cancelOrderMatch) {
+    const user = getSessionFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
+      return;
+    }
+
+    const actor = isAdminRequest(req, getSessionFromRequest) ? 'admin' : 'customer';
+    const result = await cancelOrder(
+      Number(cancelOrderMatch[1]),
+      user.id,
+      actor === 'admin'
+    );
+    if (!result.ok) {
+      sendJson(res, result.statusCode, { ok: false, message: result.message });
+      return;
+    }
+
+    notifyOrderFulfillmentChanged(result.order, req.requestId, actor);
     sendJson(res, 200, { ok: true, order: result.order });
     return;
   }
@@ -1200,7 +1224,28 @@ async function createOrderFromCart(items) {
     }
 
     const sizes = getProductSizes(product);
+    const colors = getProductColors(product);
     const size = item.size === null || item.size === undefined ? '' : String(item.size).trim();
+    let color = item.color === null || item.color === undefined ? '' : String(item.color).trim();
+    if (!color && colors.length === 1) {
+      [color] = colors;
+    }
+
+    if (colors.length) {
+      if (!color) {
+        return {
+          ok: false,
+          message: 'Vui long chon mau'
+        };
+      }
+
+      if (!colors.includes(color)) {
+        return {
+          ok: false,
+          message: 'Mau san pham khong hop le'
+        };
+      }
+    }
 
     if (requiresProductSize(product)) {
       if (!size) {
@@ -1217,8 +1262,20 @@ async function createOrderFromCart(items) {
         };
       }
 
-      const stock = Number(product.stock?.[size] || 0);
-      const key = `${product.id}:${size}`;
+      const stock = getProductVariantStock(product, color, size);
+      const key = `${product.id}:${color || '__no_color__'}:${size}`;
+      const requested = (requestedQuantities.get(key) || 0) + quantity;
+      requestedQuantities.set(key, requested);
+
+      if (requested > stock) {
+        return {
+          ok: false,
+          message: 'So luong vuot qua ton kho'
+        };
+      }
+    } else if (colors.length) {
+      const stock = getProductVariantStock(product, color, '');
+      const key = `${product.id}:${color}:__default__`;
       const requested = (requestedQuantities.get(key) || 0) + quantity;
       requestedQuantities.set(key, requested);
 
@@ -1256,6 +1313,7 @@ async function createOrderFromCart(items) {
       productId: Number(product.id),
       name: product.name,
       size: size || null,
+      color: color || null,
       quantity,
       unitPrice,
       lineTotal: unitPrice * quantity
@@ -1309,6 +1367,26 @@ function requiresProductSize(product) {
 
 function getProductSizes(product) {
   return Array.isArray(product.sizes) ? product.sizes.map(size => String(size)) : [];
+}
+
+function getProductColors(product) {
+  return Array.isArray(product.colors)
+    ? product.colors.map(color => String(color).trim()).filter(Boolean)
+    : [];
+}
+
+function getProductVariantStock(product, color, size) {
+  const colors = getProductColors(product);
+  if (colors.length) {
+    const sizeKey = size || '__default__';
+    return Math.max(0, Number(product.variantStock?.[color]?.[sizeKey]) || 0);
+  }
+
+  if (size) {
+    return Math.max(0, Number(product.stock?.[size]) || 0);
+  }
+
+  return getProductTotalStock(product) || 0;
 }
 
 function getProductTotalStock(product) {
@@ -1379,13 +1457,14 @@ async function createLocalOrder(provider, orderId, order, description, user, opt
     for (const item of order.items) {
       await connection.execute(
         `INSERT INTO order_items
-          (order_id, product_id, product_name, size, quantity, unit_price, line_total)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          (order_id, product_id, product_name, size, color, quantity, unit_price, line_total)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           result.insertId,
           item.productId,
           item.name,
           item.size || null,
+          item.color || null,
           item.quantity,
           item.unitPrice,
           item.lineTotal
@@ -1489,12 +1568,25 @@ async function updateOrderFromGateway(orderId, success, gatewayPayload) {
   try {
     await connection.beginTransaction();
     const [rows] = await connection.execute(
-      'SELECT id, stock_applied FROM orders WHERE order_code = ? FOR UPDATE',
+      'SELECT id, stock_applied, fulfillment_status FROM orders WHERE order_code = ? FOR UPDATE',
       [orderId]
     );
 
     if (!rows.length) {
       await connection.rollback();
+      return;
+    }
+
+    if (normalizeFulfillmentStatus(rows[0].fulfillment_status) === 'CANCELLED') {
+      await connection.execute(
+        'UPDATE orders SET status = ?, gateway_payload = ? WHERE id = ?',
+        ['PAID_AFTER_CANCEL', JSON.stringify(gatewayPayload || {}), rows[0].id]
+      );
+      await connection.commit();
+      logger.warn('order.paid_after_cancel', {
+        orderId,
+        orderDbId: Number(rows[0].id)
+      });
       return;
     }
 
@@ -1544,7 +1636,7 @@ async function applyOrderStockByDbId(connection, orderDbId) {
   }
 
   const [items] = await connection.execute(
-    `SELECT product_id, size, quantity
+    `SELECT product_id, size, color, quantity
      FROM order_items
      WHERE order_id = ?`,
     [orderDbId]
@@ -1554,7 +1646,7 @@ async function applyOrderStockByDbId(connection, orderDbId) {
     if (!item.product_id) continue;
 
     const [productRows] = await connection.execute(
-      'SELECT id, stock, total_stock FROM products WHERE id = ? FOR UPDATE',
+      'SELECT id, colors, stock, variant_stock, total_stock FROM products WHERE id = ? FOR UPDATE',
       [item.product_id]
     );
 
@@ -1563,6 +1655,26 @@ async function applyOrderStockByDbId(connection, orderDbId) {
     }
 
     const quantity = Number(item.quantity || 0);
+
+    const colors = parseJson(productRows[0].colors, []);
+
+    if (Array.isArray(colors) && colors.length) {
+      const variantStock = parseJson(productRows[0].variant_stock, {});
+      const color = String(item.color || (colors.length === 1 ? colors[0] : ''));
+      const sizeKey = item.size ? String(item.size) : '__default__';
+      const currentStock = Number(variantStock?.[color]?.[sizeKey] || 0);
+
+      if (!color || !colors.map(String).includes(color) || currentStock < quantity) {
+        throw new Error(`Khong du ton kho cho san pham #${item.product_id} mau ${color || 'khong xac dinh'} size ${sizeKey}`);
+      }
+
+      variantStock[color][sizeKey] = currentStock - quantity;
+      await connection.execute(
+        'UPDATE products SET variant_stock = ? WHERE id = ?',
+        [JSON.stringify(variantStock), item.product_id]
+      );
+      continue;
+    }
 
     if (item.size) {
       const stock = parseJson(productRows[0].stock, {});
@@ -1603,6 +1715,78 @@ async function applyOrderStockByDbId(connection, orderDbId) {
   return true;
 }
 
+async function restoreOrderStockByDbId(connection, orderDbId) {
+  const [orderRows] = await connection.execute(
+    'SELECT id, stock_applied FROM orders WHERE id = ? FOR UPDATE',
+    [orderDbId]
+  );
+
+  if (!orderRows.length) {
+    throw new Error('Khong tim thay don hang');
+  }
+
+  if (!Number(orderRows[0].stock_applied)) {
+    return false;
+  }
+
+  const [items] = await connection.execute(
+    `SELECT product_id, size, color, quantity
+     FROM order_items
+     WHERE order_id = ?`,
+    [orderDbId]
+  );
+
+  for (const item of items) {
+    if (!item.product_id) continue;
+
+    const [productRows] = await connection.execute(
+      'SELECT id, colors, stock, variant_stock, total_stock FROM products WHERE id = ? FOR UPDATE',
+      [item.product_id]
+    );
+    if (!productRows.length) continue;
+
+    const quantity = Math.max(0, Number(item.quantity) || 0);
+    const colors = parseJson(productRows[0].colors, []);
+
+    if (Array.isArray(colors) && colors.length) {
+      const variantStock = parseJson(productRows[0].variant_stock, {});
+      const color = String(item.color || (colors.length === 1 ? colors[0] : ''));
+      const sizeKey = item.size ? String(item.size) : '__default__';
+      if (!color || !colors.map(String).includes(color)) continue;
+
+      if (!variantStock[color] || typeof variantStock[color] !== 'object') {
+        variantStock[color] = {};
+      }
+      variantStock[color][sizeKey] = Math.max(0, Number(variantStock[color][sizeKey]) || 0) + quantity;
+      await connection.execute(
+        'UPDATE products SET variant_stock = ? WHERE id = ?',
+        [JSON.stringify(variantStock), item.product_id]
+      );
+      continue;
+    }
+
+    if (item.size) {
+      const stock = parseJson(productRows[0].stock, {});
+      const size = String(item.size);
+      stock[size] = Math.max(0, Number(stock[size]) || 0) + quantity;
+      await connection.execute(
+        'UPDATE products SET stock = ? WHERE id = ?',
+        [JSON.stringify(stock), item.product_id]
+      );
+      continue;
+    }
+
+    if (productRows[0].total_stock === null || productRows[0].total_stock === undefined) continue;
+    await connection.execute(
+      'UPDATE products SET total_stock = ? WHERE id = ?',
+      [Math.max(0, Number(productRows[0].total_stock) || 0) + quantity, item.product_id]
+    );
+  }
+
+  invalidateProductsCache();
+  return true;
+}
+
 async function getOrdersByUserId(userId) {
   if (!userId) return [];
   return fetchOrders('WHERE o.user_id = ?', [Number(userId)]);
@@ -1632,7 +1816,7 @@ async function markOrderSeen(orderDbId) {
 
 async function updateOrderFulfillmentByAdmin(orderDbId, requestedStatus) {
   const nextStatus = normalizeFulfillmentStatus(requestedStatus);
-  if (!nextStatus || nextStatus === 'DELIVERED') {
+  if (!nextStatus || ['DELIVERED', 'CANCELLED'].includes(nextStatus)) {
     return {
       ok: false,
       statusCode: 400,
@@ -1686,6 +1870,58 @@ async function updateOrderFulfillmentByAdmin(orderDbId, requestedStatus) {
       );
     }
 
+    await connection.commit();
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+
+  const orders = await fetchOrders('WHERE o.id = ?', [Number(orderDbId)]);
+  return { ok: true, order: orders[0] };
+}
+
+async function cancelOrder(orderDbId, userId, isAdmin) {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      `SELECT id, user_id, fulfillment_status
+       FROM orders
+       WHERE id = ?
+       FOR UPDATE`,
+      [Number(orderDbId)]
+    );
+
+    if (!rows.length || (!isAdmin && Number(rows[0].user_id) !== Number(userId))) {
+      await connection.rollback();
+      return { ok: false, statusCode: 404, message: 'Khong tim thay don hang' };
+    }
+
+    const currentStatus = normalizeFulfillmentStatus(rows[0].fulfillment_status) || 'ORDERED';
+    const canCancel = isAdmin
+      ? currentStatus === 'ORDERED'
+      : ['ORDERED', 'PREPARING'].includes(currentStatus);
+
+    if (!canCancel) {
+      await connection.rollback();
+      return {
+        ok: false,
+        statusCode: 409,
+        message: isAdmin
+          ? 'Admin chi co the huy don truoc khi xac nhan'
+          : 'Chi co the huy don truoc khi don chuyen sang dang giao'
+      };
+    }
+
+    await restoreOrderStockByDbId(connection, Number(orderDbId));
+    await connection.execute(
+      `UPDATE orders
+       SET fulfillment_status = 'CANCELLED', received_at = NULL
+       WHERE id = ?`,
+      [Number(orderDbId)]
+    );
     await connection.commit();
   } catch (err) {
     await connection.rollback();
@@ -1797,6 +2033,7 @@ async function fetchOrders(whereClause, params) {
        oi.product_id,
        oi.product_name,
        oi.size,
+       oi.color,
        oi.quantity,
        oi.unit_price,
        oi.line_total
@@ -1843,6 +2080,7 @@ async function fetchOrders(whereClause, params) {
         productId: row.product_id === null ? null : Number(row.product_id),
         name: row.product_name,
         size: row.size || null,
+        color: row.color || null,
         quantity: Number(row.quantity),
         unitPrice: Number(row.unit_price),
         lineTotal: Number(row.line_total)

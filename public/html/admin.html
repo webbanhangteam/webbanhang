@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Trang quản trị sản phẩm và đơn hàng.">
+    <title>Quản trị | Shop Anh Thuận</title>
+    <link rel="icon" type="image/png" href="/image/logo-nonbg.png?v=5">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/css/tailwind.css">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header class="site-header sticky-top">
+        <nav class="navbar navbar-light bg-white shadow-sm">
+            <div class="container-fluid page-pad nav-shell">
+                <a class="brand" href="/"><img src="/image/logo.png" alt="Shop Anh Thuận"><span>Shop Anh Thuận</span></a>
+                <div class="header-actions">
+                    <a class="admin-header-link active" href="/admin.html"><i class="bi bi-speedometer2"></i> Trang quản trị</a>
+                    <a class="outline-btn page-link-button" href="/profile.html">Tài khoản</a>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <main class="standalone-page">
+        <section id="adminAccessMessage" class="section page-pad access-message">
+            <i class="bi bi-shield-lock"></i>
+            <h1>Trang quản trị</h1>
+            <p data-admin-access-text>Vui lòng đăng nhập bằng tài khoản quản trị.</p>
+            <a class="black-btn page-link-button" href="/profile.html">Đến trang đăng nhập</a>
+        </section>
+
+        <section id="adminPanel" class="section page-pad admin-panel" hidden>
+            <div class="admin-dashboard-header"><h2><i class="bi bi-speedometer2"></i> Bảng điều khiển</h2><span class="admin-role-badge"><i class="bi bi-shield-check"></i> Quản trị viên</span></div>
+            <div class="admin-stats">
+                <div class="stat-card"><div class="stat-icon products"><i class="bi bi-box-seam"></i></div><div class="stat-info"><h4 id="statProductCount">0</h4><p>Sản phẩm</p></div></div>
+                <div class="stat-card"><div class="stat-icon orders"><i class="bi bi-receipt"></i></div><div class="stat-info"><h4 id="statOrderCount">0</h4><p>Đơn hàng</p></div></div>
+                <div class="stat-card"><div class="stat-icon revenue"><i class="bi bi-currency-dollar"></i></div><div class="stat-info"><h4 id="statRevenue">0đ</h4><p>Doanh thu</p></div></div>
+            </div>
+            <div class="admin-tabs">
+                <button type="button" class="active" data-admin-tab="products"><i class="bi bi-box-seam"></i> Sản phẩm</button>
+                <button type="button" data-admin-tab="orders"><i class="bi bi-receipt"></i> Đơn hàng <span id="adminNewOrdersBadge" class="admin-new-orders-badge" hidden>0</span></button>
+            </div>
+            <div class="admin-tab-content active" id="adminTabProducts">
+                <div class="admin-grid">
+                    <form id="adminProductForm" class="admin-form">
+                        <h4 class="admin-form-title"><i class="bi bi-plus-circle"></i> Thêm / Sửa sản phẩm</h4>
+                        <div class="admin-image-preview" id="adminImagePreview"><div class="placeholder-icon"><i class="bi bi-image"></i><small>Xem trước ảnh</small></div></div>
+                        <input type="hidden" id="adminProductId">
+                        <label>Tên sản phẩm<input id="adminName" type="text" required></label>
+                        <label>Danh mục<select id="adminCategory"><option value="shoes">Giày sneaker</option><option value="clothing">Quần áo</option><option value="accessory">Phụ kiện</option></select></label>
+                        <label>Giá<input id="adminPrice" type="number" min="0" step="1000" required></label>
+                        <label>Giảm giá (%)<input id="adminSalePercent" type="number" min="0" max="95" value="0"></label>
+                        <label>Ảnh sản phẩm<textarea id="adminImage" rows="4" placeholder="Mỗi ảnh trên một dòng"></textarea></label>
+                        <label>Kích cỡ<input id="adminSizes" type="text" placeholder="39,40,41 hoặc S,M,L"></label>
+                        <label>Màu sắc<input id="adminColors" type="text" placeholder="Trắng,Đen,Đỏ"></label>
+                        <label class="full-width">Tồn kho từng biến thể
+                            <textarea id="adminStock" rows="6" placeholder="Trắng|39:5, Trắng|40:3, Đen|39:2&#10;Không có size: Đen|-:10"></textarea>
+                            <small>Dùng định dạng Màu|Size:Số lượng. Nếu không khai báo màu, có thể dùng định dạng cũ Size:Số lượng.</small>
+                        </label>
+                        <label>Khu hiển thị<select id="adminSection"><option value="products">Tất cả sản phẩm</option><option value="new">Sản phẩm mới</option></select></label>
+                        <div class="admin-actions"><button class="black-btn" type="submit">Lưu sản phẩm</button><button class="outline-btn" type="button" id="cancelAdminEdit">Hủy sửa</button></div>
+                        <p id="adminMessage" class="checkout-message"></p>
+                    </form>
+                    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Sản phẩm</th><th>Danh mục</th><th>Giá</th><th>Giảm giá</th><th>Tồn kho</th><th></th></tr></thead><tbody id="adminProductsBody"></tbody></table></div>
+                </div>
+            </div>
+            <div class="admin-tab-content" id="adminTabOrders">
+                <div class="admin-orders">
+                    <div class="history-head"><h3>Lịch sử bán hàng</h3><button class="outline-btn" type="button" id="refreshAdminOrdersButton">Tải lại</button></div>
+                    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Mã đơn</th><th>Người đặt</th><th>Sản phẩm</th><th>Trạng thái</th><th>Tổng tiền</th></tr></thead><tbody id="adminOrdersBody"></tbody></table></div>
+                    <p id="adminOrdersMessage" class="checkout-message"></p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/script.js"></script>
+</body>
+</html>

@@ -53,7 +53,9 @@ async function initDatabase() {
       images JSON NULL,
       section VARCHAR(40) NOT NULL DEFAULT 'products',
       sizes JSON NOT NULL,
+      colors JSON NULL,
       stock JSON NOT NULL,
+      variant_stock JSON NULL,
       total_stock INT UNSIGNED NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -96,6 +98,7 @@ async function initDatabase() {
       product_id INT UNSIGNED NULL,
       product_name VARCHAR(255) NOT NULL,
       size VARCHAR(40) NULL,
+      color VARCHAR(80) NULL,
       quantity INT UNSIGNED NOT NULL,
       unit_price INT UNSIGNED NOT NULL,
       line_total INT UNSIGNED NOT NULL,
@@ -154,6 +157,37 @@ async function initDatabase() {
     'products',
     'images',
     'ALTER TABLE products ADD COLUMN images JSON NULL AFTER image'
+  );
+
+  const addedProductColors = await ensureColumnExists(
+    'products',
+    'colors',
+    'ALTER TABLE products ADD COLUMN colors JSON NULL AFTER sizes'
+  );
+
+  const addedVariantStock = await ensureColumnExists(
+    'products',
+    'variant_stock',
+    'ALTER TABLE products ADD COLUMN variant_stock JSON NULL AFTER stock'
+  );
+
+  if (addedProductColors || addedVariantStock) {
+    await pool.execute(`
+      UPDATE products
+      SET
+        colors = JSON_ARRAY('Mặc định'),
+        variant_stock = CASE
+          WHEN JSON_LENGTH(sizes) > 0 THEN JSON_OBJECT('Mặc định', stock)
+          ELSE JSON_OBJECT('Mặc định', JSON_OBJECT('__default__', COALESCE(total_stock, 0)))
+        END
+      WHERE colors IS NULL OR JSON_LENGTH(colors) = 0
+    `);
+  }
+
+  await ensureColumnExists(
+    'order_items',
+    'color',
+    'ALTER TABLE order_items ADD COLUMN color VARCHAR(80) NULL AFTER size'
   );
 
   await ensureIndexExists('products', 'idx_products_category', 'ALTER TABLE products ADD INDEX idx_products_category (category)');

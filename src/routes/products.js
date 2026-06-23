@@ -16,7 +16,9 @@ const defaultProducts = [
     image: 'https://images.unsplash.com/photo-1600269452121-4f2416e55c28?auto=format&fit=crop&w=900&q=84',
     section: 'new',
     sizes: [39, 40, 41, 42, 43],
-    stock: { 39: 5, 40: 8, 41: 4, 42: 3, 43: 2 }
+    colors: ['Trắng'],
+    stock: { 39: 5, 40: 8, 41: 4, 42: 3, 43: 2 },
+    variantStock: { 'Trắng': { 39: 5, 40: 8, 41: 4, 42: 3, 43: 2 } }
   },
   {
     id: 2,
@@ -28,7 +30,9 @@ const defaultProducts = [
     image: 'https://images.unsplash.com/photo-1608231387042-66d1773070a5?auto=format&fit=crop&w=900&q=84',
     section: 'new',
     sizes: [39, 40, 41, 42, 43],
-    stock: { 39: 4, 40: 6, 41: 5, 42: 2, 43: 1 }
+    colors: ['Trắng/Đen'],
+    stock: { 39: 4, 40: 6, 41: 5, 42: 2, 43: 1 },
+    variantStock: { 'Trắng/Đen': { 39: 4, 40: 6, 41: 5, 42: 2, 43: 1 } }
   },
   {
     id: 3,
@@ -40,7 +44,9 @@ const defaultProducts = [
     image: 'https://images.unsplash.com/photo-1552346154-21d32810aba3?auto=format&fit=crop&w=900&q=84',
     section: 'new',
     sizes: [39, 40, 41, 42, 43],
-    stock: { 39: 2, 40: 4, 41: 4, 42: 3, 43: 1 }
+    colors: ['Đỏ/Đen'],
+    stock: { 39: 2, 40: 4, 41: 4, 42: 3, 43: 1 },
+    variantStock: { 'Đỏ/Đen': { 39: 2, 40: 4, 41: 4, 42: 3, 43: 1 } }
   },
   {
     id: 4,
@@ -52,7 +58,9 @@ const defaultProducts = [
     image: 'https://images.unsplash.com/photo-1579338559194-a162d19bf842?auto=format&fit=crop&w=900&q=84',
     section: 'new',
     sizes: [38, 39, 40, 41, 42],
-    stock: { 38: 3, 39: 5, 40: 4, 41: 3, 42: 2 }
+    colors: ['Kem'],
+    stock: { 38: 3, 39: 5, 40: 4, 41: 3, 42: 2 },
+    variantStock: { 'Kem': { 38: 3, 39: 5, 40: 4, 41: 3, 42: 2 } }
   },
   {
     id: 5,
@@ -64,7 +72,9 @@ const defaultProducts = [
     image: '/image/products/England.avif',
     section: 'products',
     sizes: ['S', 'M', 'L', 'XL'],
-    stock: { S: 5, M: 8, L: 6, XL: 3 }
+    colors: ['Trắng'],
+    stock: { S: 5, M: 8, L: 6, XL: 3 },
+    variantStock: { 'Trắng': { S: 5, M: 8, L: 6, XL: 3 } }
   },
   {
     id: 6,
@@ -289,10 +299,20 @@ function normalizeProduct(input, current, products) {
   const nextId = products.reduce((max, item) => Math.max(max, Number(item.id) || 0), 0) + 1;
   const category = normalizeCategory(input.category || base.category);
   const sizes = normalizeSizes(input.sizes !== undefined ? input.sizes : base.sizes);
-  const stock = normalizeStock(input.stock !== undefined ? input.stock : base.stock, sizes);
+  const colors = normalizeColors(input.colors !== undefined ? input.colors : base.colors);
+  const legacyStock = normalizeStock(input.stock !== undefined ? input.stock : base.stock, sizes);
+  const variantStock = normalizeVariantStock(
+    input.variantStock !== undefined ? input.variantStock : base.variantStock,
+    colors,
+    sizes,
+    legacyStock,
+    input.totalStock !== undefined ? input.totalStock : base.totalStock
+  );
+  const stock = colors.length ? summarizeVariantStock(variantStock, sizes) : legacyStock;
   const totalStock = normalizeTotalStock(
     input.totalStock !== undefined ? input.totalStock : base.totalStock,
-    sizes
+    sizes,
+    colors
   );
   const price = Number(input.price !== undefined ? input.price : base.price);
   const salePercent = normalizeSalePercent(input.salePercent !== undefined ? input.salePercent : base.salePercent);
@@ -321,15 +341,18 @@ function normalizeProduct(input, current, products) {
     images: productImages.images,
     section: normalizeSection(input.section || base.section),
     sizes,
+    colors,
     stock,
+    variantStock,
     totalStock
   };
 }
 
 async function createProduct(product) {
   const [result] = await db.execute(
-    `INSERT INTO products (name, category, display_category, price, sale_percent, image, images, section, sizes, stock, total_stock)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO products
+     (name, category, display_category, price, sale_percent, image, images, section, sizes, colors, stock, variant_stock, total_stock)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     productToParams(product).slice(1)
   );
 
@@ -340,7 +363,7 @@ async function updateProduct(id, product) {
   await db.execute(
     `UPDATE products
      SET name = ?, category = ?, display_category = ?, price = ?, sale_percent = ?, image = ?, images = ?, section = ?,
-         sizes = ?, stock = ?, total_stock = ?
+         sizes = ?, colors = ?, stock = ?, variant_stock = ?, total_stock = ?
      WHERE id = ?`,
     [...productToParams(product).slice(1), Number(id)]
   );
@@ -371,8 +394,8 @@ async function writeProducts(filePath, products) {
     const product = normalizeProduct(input, input.id ? { id: input.id } : null, products);
     await db.execute(
       `INSERT IGNORE INTO products
-       (id, name, category, display_category, price, sale_percent, image, images, section, sizes, stock, total_stock)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, name, category, display_category, price, sale_percent, image, images, section, sizes, colors, stock, variant_stock, total_stock)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       productToParams(product)
     );
   }
@@ -392,7 +415,9 @@ function productToParams(product) {
     JSON.stringify(product.images || []),
     product.section,
     JSON.stringify(product.sizes || []),
+    JSON.stringify(product.colors || []),
     JSON.stringify(product.stock || {}),
+    JSON.stringify(product.variantStock || {}),
     product.totalStock === null || product.totalStock === undefined ? null : Number(product.totalStock) || 0
   ];
 }
@@ -401,6 +426,16 @@ function rowToProduct(row) {
   if (!row) return null;
 
   const productImages = normalizeProductImages(row.image, parseJson(row.images, []));
+  const sizes = normalizeSizes(parseJson(row.sizes, []));
+  const colors = normalizeColors(parseJson(row.colors, []));
+  const stock = normalizeStock(parseJson(row.stock, {}), sizes);
+  const variantStock = normalizeVariantStock(
+    parseJson(row.variant_stock, {}),
+    colors,
+    sizes,
+    stock,
+    row.total_stock
+  );
 
   return {
     id: Number(row.id),
@@ -412,9 +447,11 @@ function rowToProduct(row) {
     image: productImages.image,
     images: productImages.images,
     section: row.section,
-    sizes: parseJson(row.sizes, []),
-    stock: parseJson(row.stock, {}),
-    totalStock: row.total_stock === null || row.total_stock === undefined ? null : Number(row.total_stock)
+    sizes,
+    colors,
+    stock: colors.length ? summarizeVariantStock(variantStock, sizes) : stock,
+    variantStock,
+    totalStock: normalizeTotalStock(row.total_stock, sizes, colors)
   };
 }
 
@@ -522,6 +559,16 @@ function normalizeSizes(value) {
     .filter(Boolean);
 }
 
+function normalizeColors(value) {
+  const colors = Array.isArray(value)
+    ? value
+    : String(value || '').split(',');
+
+  return Array.from(new Set(
+    colors.map((item) => String(item).trim()).filter(Boolean)
+  ));
+}
+
 function normalizeStock(value, sizes) {
   if (!sizes.length) return {};
 
@@ -549,8 +596,41 @@ function normalizeStock(value, sizes) {
   return stock;
 }
 
-function normalizeTotalStock(value, sizes) {
-  if (sizes.length) return null;
+function normalizeVariantStock(value, colors, sizes, legacyStock, totalStock) {
+  if (!colors.length) return {};
+
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const sizeKeys = sizes.length ? sizes : ['__default__'];
+
+  return colors.reduce((result, color, colorIndex) => {
+    const colorSource = source[color] && typeof source[color] === 'object'
+      ? source[color]
+      : {};
+
+    result[color] = sizeKeys.reduce((entries, size) => {
+      const fallback = colorIndex === 0
+        ? (sizes.length ? legacyStock[size] : totalStock)
+        : 0;
+      entries[size] = Math.max(0, Number(colorSource[size] ?? fallback) || 0);
+      return entries;
+    }, {});
+    return result;
+  }, {});
+}
+
+function summarizeVariantStock(variantStock, sizes) {
+  if (!sizes.length) return {};
+
+  return Object.values(variantStock || {}).reduce((summary, colorStock) => {
+    sizes.forEach((size) => {
+      summary[size] = (summary[size] || 0) + Math.max(0, Number(colorStock?.[size]) || 0);
+    });
+    return summary;
+  }, {});
+}
+
+function normalizeTotalStock(value, sizes, colors = []) {
+  if (sizes.length || colors.length) return null;
   if (value === null || value === undefined || value === '') return null;
 
   const totalStock = Number(value);
@@ -572,5 +652,7 @@ module.exports = {
   getProductById,
   invalidateProductsCache,
   normalizeProductImage,
-  normalizeProductImages
+  normalizeProductImages,
+  normalizeVariantStock,
+  summarizeVariantStock
 };
