@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Tìm kiếm sản phẩm theo tên, phân loại và màu sắc tại Shop Anh Thuận.">
+    <title>Tìm kiếm sản phẩm | Shop Anh Thuận</title>
+    <link rel="icon" type="image/png" href="/image/logo-nonbg.png?v=5">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/css/tailwind.css">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header class="site-header sticky-top">
+        <nav class="navbar navbar-light bg-white shadow-sm">
+            <div class="container-fluid page-pad nav-shell">
+                <a class="brand" href="/">
+                    <img src="/image/logo.png" alt="">
+                    <span>Shop Anh Thuận</span>
+                </a>
+                <div class="header-actions">
+                    <a class="icon-btn active" href="/search.html" aria-label="Tìm kiếm">
+                        <i class="bi bi-search"></i>
+                    </a>
+                    <a class="admin-header-link" href="/admin.html" data-admin-page-link hidden>
+                        <i class="bi bi-speedometer2"></i><span>Quản trị</span>
+                    </a>
+                    <a class="icon-btn" href="/profile.html" id="accountButton" aria-label="Tài khoản">
+                        <i class="bi bi-person"></i>
+                    </a>
+                    <button class="cart-trigger" type="button" data-bs-toggle="offcanvas"
+                        data-bs-target="#cartDrawer" aria-label="Giỏ hàng">
+                        <i class="bi bi-bag"></i><span id="cartCount">0</span>
+                    </button>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section class="section page-pad standalone-page search-page">
+            <div class="detail-breadcrumb">
+                <a href="/">Trang chủ</a><i class="bi bi-chevron-right"></i><span>Tìm kiếm</span>
+            </div>
+
+            <div class="search-page-heading">
+                <p class="eyebrow">Khám phá sản phẩm</p>
+                <h1 id="searchPageTitle">Tìm kiếm sản phẩm</h1>
+                <p>Tìm theo tên, từ liên quan, phân loại hoặc màu sắc.</p>
+            </div>
+
+            <form class="search-filter-panel" id="searchPageForm" action="/search.html" method="get">
+                <label class="search-field search-field-query">
+                    <span>Từ khóa</span>
+                    <span class="search-field-control">
+                        <i class="bi bi-search"></i>
+                        <input id="searchPageInput" name="q" type="search"
+                            placeholder="Ví dụ: giày trắng, áo bóng đá, túi đen...">
+                    </span>
+                </label>
+                <label class="search-field">
+                    <span>Phân loại</span>
+                    <select id="searchPageCategory" name="category">
+                        <option value="">Tất cả phân loại</option>
+                    </select>
+                </label>
+                <label class="search-field">
+                    <span>Màu sắc</span>
+                    <select id="searchPageColor" name="color">
+                        <option value="">Tất cả màu sắc</option>
+                    </select>
+                </label>
+                <div class="search-filter-actions">
+                    <button class="black-btn" type="submit">Tìm kiếm</button>
+                    <button class="outline-btn" id="clearSearchFilters" type="button">Xóa lọc</button>
+                </div>
+            </form>
+
+            <div class="search-results-heading">
+                <p id="searchPageSummary" aria-live="polite"></p>
+            </div>
+            <div class="product-grid row g-4 search-page-grid" id="searchPageGrid" aria-live="polite">
+                <p class="search-page-status">Đang tải sản phẩm...</p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-bottom page-pad">
+            <span>© 2026 Shop Anh Thuận</span>
+            <a href="/">Quay lại trang chủ</a>
+        </div>
+    </footer>
+
+    <div class="offcanvas offcanvas-end cart-drawer" tabindex="-1" id="cartDrawer">
+        <div class="offcanvas-header">
+            <h2 class="offcanvas-title">Giỏ hàng</h2>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Đóng"></button>
+        </div>
+        <div class="offcanvas-body">
+            <div id="cartItems" class="cart-items">
+                <p class="empty-cart">Chưa có sản phẩm trong giỏ.</p>
+            </div>
+            <div class="drawer-summary">
+                <div><span>Tạm tính</span><strong id="subtotal">0đ</strong></div>
+                <p id="checkoutMessage" class="checkout-message"></p>
+                <button class="black-btn" type="button" id="momoCheckout">Thanh toán MoMo</button>
+                <button class="outline-btn" type="button" id="zaloCheckout">Thanh toán ZaloPay</button>
+                <button class="outline-btn" type="button" id="codCheckout">Thanh toán khi nhận hàng (COD)</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/script.js"></script>
+</body>
+</html>

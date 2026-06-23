@@ -15,6 +15,35 @@ const ORDER_FULFILLMENT_STEPS = [
     { value: 'DELIVERED', label: 'Đã nhận hàng' }
 ];
 const CANCELLED_FULFILLMENT_STATUS = 'CANCELLED';
+const SEARCH_CATEGORY_TERMS = {
+    shoes: ['giày', 'giày dép', 'giày thể thao', 'sneaker', 'shoe', 'shoes', 'footwear'],
+    clothing: ['quần áo', 'áo', 'quần', 'thời trang', 'đồ mặc', 'clothing', 'clothes', 'apparel'],
+    accessory: ['phụ kiện', 'accessory', 'accessories']
+};
+const SEARCH_PRODUCT_GROUPS = [
+    ['air force', 'af1'],
+    ['dunk', 'panda'],
+    ['jordan', 'aj1'],
+    ['new balance', 'nb', '550'],
+    ['áo đấu', 'jersey', 'bóng đá', 'football shirt'],
+    ['áo thun', 'tee', 't shirt', 't-shirt'],
+    ['túi', 'bag', 'đeo chéo', 'sling bag'],
+    ['mũ', 'nón', 'cap', 'hat']
+];
+const SEARCH_COLOR_GROUPS = [
+    ['trắng', 'white'],
+    ['đen', 'black'],
+    ['đỏ', 'red'],
+    ['xám', 'ghi', 'gray', 'grey'],
+    ['kem', 'cream', 'beige'],
+    ['xanh dương', 'xanh biển', 'blue'],
+    ['xanh lá', 'green'],
+    ['vàng', 'yellow'],
+    ['nâu', 'brown'],
+    ['hồng', 'pink'],
+    ['tím', 'purple', 'violet'],
+    ['cam', 'orange']
+];
 
 let products = [];
 let cart = loadJson(CART_KEY, []).map(normalizeCartItem).filter(Boolean);
@@ -37,6 +66,15 @@ const subtotal = document.getElementById('subtotal');
 const checkoutMessage = document.getElementById('checkoutMessage');
 const searchInput = document.getElementById('searchInput');
 const searchResults = document.getElementById('searchResults');
+const searchForm = document.getElementById('searchForm');
+const searchPageForm = document.getElementById('searchPageForm');
+const searchPageInput = document.getElementById('searchPageInput');
+const searchPageCategory = document.getElementById('searchPageCategory');
+const searchPageColor = document.getElementById('searchPageColor');
+const searchPageGrid = document.getElementById('searchPageGrid');
+const searchPageSummary = document.getElementById('searchPageSummary');
+const searchPageTitle = document.getElementById('searchPageTitle');
+const clearSearchFiltersButton = document.getElementById('clearSearchFilters');
 const productGrid = document.getElementById('productGrid');
 const secondaryProducts = document.querySelector('.secondary-products');
 const accountButton = document.getElementById('accountButton');
@@ -103,6 +141,7 @@ async function init() {
     renderProductDetail();
     renderCart();
     renderSearch(searchInput?.value || '');
+    await initSearchPage();
     updateAccountUi();
     renderAdminProducts();
 }
@@ -211,6 +250,31 @@ function bindStaticEvents() {
             renderSearch(searchInput.value);
         });
     }
+
+    if (searchForm) {
+        searchForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            window.location.href = buildSearchUrl({ query: searchInput?.value });
+        });
+    }
+
+    if (searchPageForm) {
+        searchPageForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            updateSearchPage();
+        });
+    }
+
+    [searchPageCategory, searchPageColor].filter(Boolean).forEach((select) => {
+        select.addEventListener('change', updateSearchPage);
+    });
+
+    clearSearchFiltersButton?.addEventListener('click', () => {
+        if (searchPageInput) searchPageInput.value = '';
+        if (searchPageCategory) searchPageCategory.value = '';
+        if (searchPageColor) searchPageColor.value = '';
+        updateSearchPage();
+    });
 
     const searchModal = document.getElementById('searchModal');
     if (searchModal) {
@@ -1123,18 +1187,28 @@ function renderCart() {
 function renderSearch(query) {
     if (!searchResults) return;
     const normalized = normalizeSearchText(query);
-    const matches = products.filter((product) => {
-        const categoryLabel = getSearchCategoryLabel(product);
-        const haystack = normalizeSearchText(`${product.name} ${categoryLabel} ${product.displayCategory}`);
-        return !normalized || haystack.includes(normalized);
-    }).slice(0, 6);
+    const tokens = normalized.split(' ').filter(Boolean);
+    const matches = products
+        .filter((product) => {
+            const haystack = getProductSearchText(product);
+            return !tokens.length || tokens.every((token) => haystack.includes(token));
+        })
+        .slice(0, 6);
 
-    searchResults.innerHTML = matches.map((product) => `
+    const resultItems = matches.map((product) => `
         <button type="button" class="search-result" data-product-id="${product.id}">
             <span>${escapeHtml(product.name)} · ${escapeHtml(getSearchCategoryLabel(product))}</span>
             ${renderPrice(product)}
         </button>
     `).join('');
+    const emptyMessage = normalized && !matches.length
+        ? '<p class="search-empty">Không tìm thấy gợi ý phù hợp. Hãy thử từ khóa khác.</p>'
+        : '';
+    const allResultsLink = normalized
+        ? `<a class="search-all-link" href="${escapeAttr(buildSearchUrl({ query }))}">Xem tất cả kết quả cho “${escapeHtml(query.trim())}” <i class="bi bi-arrow-right"></i></a>`
+        : '';
+
+    searchResults.innerHTML = resultItems + emptyMessage + allResultsLink;
 }
 
 function normalizeSearchText(value) {
@@ -1143,7 +1217,36 @@ function normalizeSearchText(value) {
         .toLowerCase()
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
-        .replace(/đ/g, 'd');
+        .replace(/đ/g, 'd')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
+        .replace(/\s+/g, ' ');
+}
+
+function getProductSearchText(product) {
+    const category = normalizeSearchText(product?.category);
+    const colors = getProductColors(product);
+    const productIdentity = normalizeSearchText(`${product?.name || ''} ${product?.displayCategory || ''}`);
+    const relatedProductTerms = SEARCH_PRODUCT_GROUPS.filter((terms) => {
+        return terms.some((term) => productIdentity.includes(normalizeSearchText(term)));
+    }).flat();
+    const relatedColors = colors.flatMap((color) => {
+        const normalizedColor = normalizeSearchText(color);
+        return SEARCH_COLOR_GROUPS.filter((terms) => {
+            return terms.some((term) => normalizedColor.includes(normalizeSearchText(term)));
+        }).flat();
+    });
+
+    return normalizeSearchText([
+        product?.name,
+        product?.displayCategory,
+        product?.category,
+        'sản phẩm màu màu sắc product color',
+        ...colors,
+        ...(SEARCH_CATEGORY_TERMS[category] || []),
+        ...relatedProductTerms,
+        ...relatedColors
+    ].filter(Boolean).join(' '));
 }
 
 function getSearchCategoryLabel(product) {
@@ -1153,6 +1256,105 @@ function getSearchCategoryLabel(product) {
     if (category === 'shoes' || displayCategory === 'sneaker') return 'Giày sneaker';
     if (category === 'clothing' || displayCategory === 'apparel') return 'Quần áo';
     return 'Phụ kiện';
+}
+
+async function initSearchPage() {
+    if (!searchPageForm || !searchPageGrid) return;
+
+    renderSearchPageFilterOptions();
+    const params = new URLSearchParams(window.location.search);
+    if (searchPageInput) searchPageInput.value = params.get('q') || '';
+    if (searchPageCategory) searchPageCategory.value = params.get('category') || '';
+    if (searchPageColor) searchPageColor.value = params.get('color') || '';
+    await renderSearchPage();
+}
+
+function renderSearchPageFilterOptions() {
+    if (searchPageCategory) {
+        const categories = Array.from(new Set(products.map((product) => String(product.category || '')).filter(Boolean)));
+        searchPageCategory.innerHTML = [
+            '<option value="">Tất cả phân loại</option>',
+            ...categories.map((category) => {
+                const product = products.find((item) => String(item.category) === category);
+                return `<option value="${escapeAttr(category)}">${escapeHtml(getSearchCategoryLabel(product))}</option>`;
+            })
+        ].join('');
+    }
+
+    if (searchPageColor) {
+        const colors = Array.from(new Set(products.flatMap(getProductColors)))
+            .sort((left, right) => left.localeCompare(right, 'vi'));
+        searchPageColor.innerHTML = [
+            '<option value="">Tất cả màu sắc</option>',
+            ...colors.map((color) => `<option value="${escapeAttr(color)}">${escapeHtml(color)}</option>`)
+        ].join('');
+    }
+}
+
+function updateSearchPage() {
+    const query = searchPageInput?.value || '';
+    const category = searchPageCategory?.value || '';
+    const color = searchPageColor?.value || '';
+    const url = buildSearchUrl({ query, category, color });
+
+    window.history.replaceState({}, '', url);
+    renderSearchPage();
+}
+
+async function renderSearchPage() {
+    if (!searchPageGrid) return;
+
+    const query = searchPageInput?.value.trim() || '';
+    const category = searchPageCategory?.value || '';
+    const color = searchPageColor?.value || '';
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    if (category) params.set('category', category);
+    if (color) params.set('color', color);
+
+    searchPageGrid.classList.add('product-loading');
+    searchPageGrid.innerHTML = '<p class="search-page-status">Đang tìm sản phẩm phù hợp...</p>';
+
+    try {
+        const response = await fetch(`/api/products?${params.toString()}`);
+        const data = await response.json();
+        if (!response.ok || !Array.isArray(data.products)) {
+            throw new Error(data.message || 'Không tải được kết quả tìm kiếm');
+        }
+
+        const matches = data.products;
+        searchPageGrid.classList.remove('product-loading');
+        searchPageGrid.innerHTML = matches.length
+            ? matches.map((product) => renderProductCard(product, true)).join('')
+            : '<div class="search-page-empty"><i class="bi bi-search"></i><h2>Không tìm thấy sản phẩm</h2><p>Hãy thử từ khóa, phân loại hoặc màu sắc khác.</p></div>';
+
+        if (searchPageTitle) {
+            searchPageTitle.textContent = query ? `Kết quả cho “${query}”` : 'Tất cả sản phẩm';
+        }
+        if (searchPageSummary) {
+            const details = [
+                category ? getSearchCategoryLabel({ category }) : '',
+                color ? `Màu ${color}` : ''
+            ].filter(Boolean);
+            searchPageSummary.textContent = `${matches.length} sản phẩm${details.length ? ` · ${details.join(' · ')}` : ''}`;
+        }
+        document.title = query
+            ? `Tìm kiếm: ${query} | Shop Anh Thuận`
+            : 'Tìm kiếm sản phẩm | Shop Anh Thuận';
+    } catch (error) {
+        searchPageGrid.classList.remove('product-loading');
+        searchPageGrid.innerHTML = `<p class="search-page-status search-page-error">${escapeHtml(error.message)}</p>`;
+        if (searchPageSummary) searchPageSummary.textContent = '';
+    }
+}
+
+function buildSearchUrl({ query = '', category = '', color = '' } = {}) {
+    const params = new URLSearchParams();
+    if (String(query).trim()) params.set('q', String(query).trim());
+    if (String(category).trim()) params.set('category', String(category).trim());
+    if (String(color).trim()) params.set('color', String(color).trim());
+    const queryString = params.toString();
+    return `/search.html${queryString ? `?${queryString}` : ''}`;
 }
 
 function scrollToProduct(productId) {

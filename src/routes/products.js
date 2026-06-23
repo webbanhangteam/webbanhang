@@ -4,6 +4,43 @@ const db = require('../config/db');
 let productsCache = null;
 let productsCacheTime = 0;
 const productsCacheTtl = 30 * 1000;
+const categorySearchTerms = {
+  shoes: [
+    'giày', 'giày dép', 'giày thể thao', 'sneaker', 'shoe', 'shoes',
+    'footwear'
+  ],
+  clothing: [
+    'quần áo', 'áo', 'quần', 'thời trang', 'đồ mặc', 'clothing',
+    'clothes', 'apparel'
+  ],
+  accessory: [
+    'phụ kiện', 'accessory', 'accessories'
+  ]
+};
+const productSearchGroups = [
+  ['air force', 'af1'],
+  ['dunk', 'panda'],
+  ['jordan', 'aj1'],
+  ['new balance', 'nb', '550'],
+  ['áo đấu', 'jersey', 'bóng đá', 'football shirt'],
+  ['áo thun', 'tee', 't shirt', 't-shirt'],
+  ['túi', 'bag', 'đeo chéo', 'sling bag'],
+  ['mũ', 'nón', 'cap', 'hat']
+];
+const colorSearchGroups = [
+  ['trắng', 'white'],
+  ['đen', 'black'],
+  ['đỏ', 'red'],
+  ['xám', 'ghi', 'gray', 'grey'],
+  ['kem', 'cream', 'beige'],
+  ['xanh dương', 'xanh biển', 'blue'],
+  ['xanh lá', 'green'],
+  ['vàng', 'yellow'],
+  ['nâu', 'brown'],
+  ['hồng', 'pink'],
+  ['tím', 'purple', 'violet'],
+  ['cam', 'orange']
+];
 
 const defaultProducts = [
   {
@@ -141,9 +178,14 @@ async function handleProductsRoute(req, res, requestUrl, context) {
   if (!route) return false;
 
   if (route.collection && req.method === 'GET') {
+    const allProducts = await readProducts();
     context.sendJson(res, 200, {
       ok: true,
-      products: await readProducts()
+      products: searchProducts(allProducts, {
+        query: requestUrl.searchParams.get('q'),
+        category: requestUrl.searchParams.get('category'),
+        color: requestUrl.searchParams.get('color')
+      })
     });
     return true;
   }
@@ -480,6 +522,102 @@ function normalizeCategory(value) {
   return normalized || 'accessory';
 }
 
+function searchProducts(products, filters = {}) {
+  const source = Array.isArray(products) ? products : [];
+  const query = normalizeSearchText(filters.query);
+  const queryTokens = query.split(' ').filter(Boolean);
+  const category = normalizeSearchText(filters.category);
+  const color = normalizeSearchText(filters.color);
+  const hasFilters = Boolean(query || category || color);
+
+  if (!hasFilters) return source;
+
+  return source
+    .map((product, index) => {
+      const searchable = buildProductSearchText(product);
+      const productCategory = normalizeSearchText(product?.category);
+      const productColors = normalizeColors(product?.colors).map(normalizeSearchText);
+
+      if (category && productCategory !== category) return null;
+      if (color && !productColors.includes(color)) return null;
+      if (queryTokens.length && !queryTokens.every((token) => searchable.includes(token))) {
+        return null;
+      }
+
+      return {
+        product,
+        index,
+        score: getProductSearchScore(product, query, queryTokens)
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((entry) => entry.product);
+}
+
+function buildProductSearchText(product) {
+  const category = normalizeSearchText(product?.category);
+  const colors = normalizeColors(product?.colors);
+  const productIdentity = normalizeSearchText(`${product?.name || ''} ${product?.displayCategory || ''}`);
+  const relatedProductTerms = productSearchGroups.filter((terms) => {
+    return terms.some((term) => productIdentity.includes(normalizeSearchText(term)));
+  }).flat();
+  const relatedColorTerms = colors.flatMap((color) => {
+    const normalizedColor = normalizeSearchText(color);
+    return colorSearchGroups.filter((terms) => {
+      return terms.some((term) => normalizedColor.includes(normalizeSearchText(term)));
+    }).flat();
+  });
+
+  return normalizeSearchText([
+    product?.name,
+    product?.displayCategory,
+    product?.category,
+    'sản phẩm màu màu sắc product color',
+    ...colors,
+    ...(categorySearchTerms[category] || []),
+    ...relatedProductTerms,
+    ...relatedColorTerms
+  ].filter(Boolean).join(' '));
+}
+
+function getProductSearchScore(product, query, queryTokens) {
+  if (!query) return 0;
+
+  const name = normalizeSearchText(product?.name);
+  const category = normalizeSearchText(`${product?.displayCategory || ''} ${product?.category || ''}`);
+  const colors = normalizeSearchText(normalizeColors(product?.colors).join(' '));
+  let score = 0;
+
+  if (name === query) score += 1000;
+  else if (name.startsWith(query)) score += 700;
+  else if (name.includes(query)) score += 500;
+
+  if (category.includes(query)) score += 250;
+  if (colors.includes(query)) score += 220;
+
+  queryTokens.forEach((token) => {
+    if (name.split(' ').includes(token)) score += 80;
+    else if (name.includes(token)) score += 45;
+    if (category.includes(token)) score += 25;
+    if (colors.includes(token)) score += 20;
+  });
+
+  return score;
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
 function normalizeDisplayCategory(value, category) {
   const label = String(value || '').trim();
   if (label) {
@@ -654,5 +792,7 @@ module.exports = {
   normalizeProductImage,
   normalizeProductImages,
   normalizeVariantStock,
-  summarizeVariantStock
+  summarizeVariantStock,
+  searchProducts,
+  normalizeSearchText
 };

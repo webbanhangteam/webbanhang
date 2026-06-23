@@ -125,11 +125,12 @@ a {
     text-decoration: none;
     text-transform: uppercase;
     white-space: nowrap;
+    padding-left: 5%;
 }
 
 .brand img {
-    width: 42px;
-    height: 42px;
+    width: 40px;
+    height: 40px;
     object-fit: contain;
 }
 
@@ -1029,7 +1030,7 @@ a {
     text-align: center;
 }
 
-.access-message > i {
+.access-message>i {
     font-size: 3rem;
 }
 
@@ -1809,6 +1810,22 @@ a {
 .search-box input {
     width: 100%;
     padding-left: 42px;
+    padding-right: 126px;
+}
+
+.search-submit-btn {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    min-height: 40px;
+    padding: 0 18px;
+    border: 0;
+    border-radius: calc(var(--radius) - 4px);
+    background: var(--ink);
+    color: white;
+    font-size: 0.82rem;
+    font-weight: 800;
+    transform: translateY(-50%);
 }
 
 .search-results {
@@ -1827,6 +1844,180 @@ a {
     border-radius: var(--radius);
     background: var(--soft);
     text-align: left;
+}
+
+.search-empty {
+    margin: 0;
+    padding: 18px;
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+    color: var(--muted);
+    text-align: center;
+}
+
+.search-all-link {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    min-height: 48px;
+    border-radius: var(--radius);
+    background: var(--ink);
+    color: white;
+    font-size: 0.88rem;
+    font-weight: 800;
+}
+
+.search-all-link:hover {
+    background: var(--accent-dark);
+    color: white;
+}
+
+.search-page {
+    min-height: 72vh;
+}
+
+.search-page-heading {
+    max-width: 760px;
+    margin: 34px 0 28px;
+}
+
+.search-page-heading .eyebrow {
+    margin-bottom: 8px;
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.search-page-heading h1 {
+    margin-bottom: 10px;
+    font-family: var(--display);
+    font-size: clamp(2.2rem, 5vw, 4.4rem);
+    line-height: 0.98;
+}
+
+.search-page-heading>p:last-child,
+.search-results-heading p {
+    margin: 0;
+    color: var(--muted);
+}
+
+.search-filter-panel {
+    display: grid;
+    grid-template-columns: minmax(280px, 2fr) repeat(2, minmax(170px, 1fr)) auto;
+    gap: 14px;
+    align-items: end;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: calc(var(--radius) + 4px);
+    background: var(--soft);
+}
+
+.search-field {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+}
+
+.search-field>span:first-child {
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.search-field input,
+.search-field select {
+    width: 100%;
+    min-height: 48px;
+    padding: 0 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: white;
+    color: var(--ink);
+}
+
+.search-field-control {
+    position: relative;
+}
+
+.search-field-control i {
+    position: absolute;
+    top: 50%;
+    left: 14px;
+    color: var(--muted);
+    transform: translateY(-50%);
+}
+
+.search-field-control input {
+    padding-left: 42px;
+}
+
+.search-filter-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.search-filter-actions .black-btn,
+.search-filter-actions .outline-btn {
+    min-height: 48px;
+    white-space: nowrap;
+}
+
+.search-results-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 66px;
+}
+
+.search-page-grid {
+    min-height: 260px;
+}
+
+.search-page-status,
+.search-page-empty {
+    width: 100%;
+    margin: 0;
+}
+
+.search-page-status {
+    display: grid;
+    place-items: center;
+    min-height: 220px;
+    color: var(--muted);
+}
+
+.search-page-error {
+    color: #b91c1c;
+}
+
+.search-page-empty {
+    display: grid;
+    place-items: center;
+    min-height: 320px;
+    padding: 40px 20px;
+    border: 1px dashed var(--line);
+    border-radius: calc(var(--radius) + 4px);
+    text-align: center;
+}
+
+.search-page-empty i {
+    margin-bottom: 12px;
+    color: var(--accent);
+    font-size: 2rem;
+}
+
+.search-page-empty h2,
+.search-page-empty p {
+    margin: 0;
+}
+
+.search-page-empty p {
+    margin-top: 8px;
+    color: var(--muted);
 }
 
 .cart-items {
@@ -2693,16 +2884,34 @@ a {
         white-space: nowrap;
     }
 
-    .nav-shell {
-        grid-template-columns: auto 1fr auto;
+    .navbar-expand-lg .nav-shell {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr) auto;
+        gap: 12px;
+        flex-wrap: nowrap;
     }
 
-    .brand {
-        justify-self: center;
-    }
-
-    .header-actions {
+    .navbar-expand-lg .menu-trigger {
         position: static;
+        grid-column: 1;
+    }
+
+    .navbar-expand-lg .brand {
+        grid-column: 2;
+        justify-self: center;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .navbar-expand-lg .brand span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .navbar-expand-lg .header-actions {
+        grid-column: 3;
+        position: static;
+        justify-self: end;
         transform: none;
     }
 
@@ -2736,6 +2945,14 @@ a {
     .detail-card {
         position: static;
     }
+
+    .search-filter-panel {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .search-field-query {
+        grid-column: 1 / -1;
+    }
 }
 
 @media (max-width: 767.98px) {
@@ -2768,6 +2985,24 @@ a {
         flex-direction: column;
     }
 
+    .search-filter-panel {
+        grid-template-columns: 1fr;
+        padding: 16px;
+    }
+
+    .search-field-query {
+        grid-column: auto;
+    }
+
+    .search-filter-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .search-page-heading {
+        margin-top: 24px;
+    }
+
     .signup-form {
         grid-template-columns: 1fr;
     }
@@ -2779,8 +3014,21 @@ a {
 }
 
 @media (max-width: 575.98px) {
-    .brand span {
-        font-size: 1.2rem;
+    .navbar-expand-lg .nav-shell {
+        gap: 8px;
+    }
+
+    .navbar-expand-lg .brand span {
+        font-size: clamp(1rem, 4.6vw, 1.2rem);
+    }
+
+    .navbar-expand-lg .admin-header-link {
+        width: 42px;
+        padding: 0;
+    }
+
+    .navbar-expand-lg .admin-header-link span {
+        display: none;
     }
 
     .brand img {

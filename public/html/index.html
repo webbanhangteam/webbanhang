@@ -37,7 +37,6 @@
                 </button>
 
                 <a class="brand" href="#home" aria-label="Cửa hàng Anh Thuận">
-                    <img src="/image/logo.png" alt="Cửa hàng Anh Thuận" decoding="async">
                     <span>Shop Anh Thuận đẹp trai</span>
                 </a>
                 <div class="header-actions">
@@ -566,7 +565,7 @@
         <div class="footer-grid">
             <div class="footer-brand">
                 <a class="brand" href="#home">
-                    <img src="/image/logo-nonbg.png" alt="Cửa hàng Anh Thuận" decoding="async">
+                    <img src="/image/logo.png" alt="Cửa hàng Anh Thuận" decoding="async">
                     <span>CỬA HÀNG TĂNG THUẬN</span>
                 </a>
                 <p>Sắp tới bán đồ tại Hà Nội.</p>
@@ -611,11 +610,12 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Đóng"></button>
                 </div>
                 <div class="modal-body">
-                    <div class="search-box">
+                    <form class="search-box" id="searchForm" action="/search.html" method="get">
                         <i class="bi bi-search"></i>
-                        <input id="searchInput" type="search" placeholder="Nhập tên sản phẩm, danh mục..."
+                        <input id="searchInput" name="q" type="search" placeholder="Tên sản phẩm, phân loại, màu sắc..."
                             aria-label="Tìm kiếm sản phẩm">
-                    </div>
+                        <button class="search-submit-btn" type="submit">Tìm kiếm</button>
+                    </form>
                     <div id="searchResults" class="search-results"></div>
                 </div>
             </div>
