@@ -59,6 +59,9 @@ let userOrders = [];
 let userOrderStreamController = null;
 let userOrderStreamReconnectTimer = null;
 let userOrderStreamGeneration = 0;
+let adminReturnRequests = [];
+let adminRevenueSummary = null;
+let currentReviewData = null;
 
 const cartCount = document.getElementById('cartCount');
 const cartItems = document.getElementById('cartItems');
@@ -93,6 +96,18 @@ const orderHistoryPanel = document.getElementById('orderHistoryPanel');
 const orderHistoryList = document.getElementById('orderHistoryList');
 const orderHistoryMessage = document.getElementById('orderHistoryMessage');
 const refreshOrdersButton = document.getElementById('refreshOrdersButton');
+const returnsLoggedOut = document.getElementById('returnsLoggedOut');
+const returnsPanel = document.getElementById('returnsPanel');
+const returnOrdersList = document.getElementById('returnOrdersList');
+const returnOrdersMessage = document.getElementById('returnOrdersMessage');
+const refreshReturnOrdersButton = document.getElementById('refreshReturnOrdersButton');
+const returnRequestForm = document.getElementById('returnRequestForm');
+const returnOrderSelect = document.getElementById('returnOrderSelect');
+const returnRequestType = document.getElementById('returnRequestType');
+const returnReason = document.getElementById('returnReason');
+const returnSelectedOrderSummary = document.getElementById('returnSelectedOrderSummary');
+const submitReturnRequestButton = document.getElementById('submitReturnRequestButton');
+const returnsMessage = document.getElementById('returnsMessage');
 const adminPanel = document.getElementById('adminPanel');
 const adminAccessMessage = document.getElementById('adminAccessMessage');
 const adminProductForm = document.getElementById('adminProductForm');
@@ -101,6 +116,10 @@ const adminMessage = document.getElementById('adminMessage');
 const adminOrdersBody = document.getElementById('adminOrdersBody');
 const adminOrdersMessage = document.getElementById('adminOrdersMessage');
 const refreshAdminOrdersButton = document.getElementById('refreshAdminOrdersButton');
+const adminReturnRequestsBody = document.getElementById('adminReturnRequestsBody');
+const adminReturnRequestsMessage = document.getElementById('adminReturnRequestsMessage');
+const refreshAdminReturnRequestsButton = document.getElementById('refreshAdminReturnRequestsButton');
+const adminRevenueBreakdown = document.getElementById('adminRevenueBreakdown');
 const adminNewOrdersBadge = document.getElementById('adminNewOrdersBadge');
 const profileLoggedOut = document.getElementById('profileLoggedOut');
 const profileLoggedIn = document.getElementById('profileLoggedIn');
@@ -112,6 +131,7 @@ const wishlistGrid = document.getElementById('wishlistGrid');
 const relatedProductsGrid = document.getElementById('relatedProductsGrid');
 const detailBreadcrumbName = document.getElementById('detailBreadcrumbName');
 const detailCategoryBadge = document.getElementById('detailCategoryBadge');
+const detailReviewsPane = document.getElementById('detailTabReviews');
 const adminImagePreview = document.getElementById('adminImagePreview');
 const statProductCount = document.getElementById('statProductCount');
 const statOrderCount = document.getElementById('statOrderCount');
@@ -141,6 +161,9 @@ async function init() {
     syncCartWithProducts();
     renderProducts();
     renderProductDetail();
+    if (new URLSearchParams(window.location.search).get('review')) {
+        switchDetailTab('reviews');
+    }
     renderCart();
     renderSearch(searchInput?.value || '');
     await initSearchPage();
@@ -246,6 +269,8 @@ function contentTemplate(path, values, fallback = '') {
 
 function bindStaticEvents() {
     document.addEventListener('click', handleDocumentClick);
+    document.addEventListener('submit', handleDocumentSubmit);
+    document.addEventListener('change', handleDocumentChange);
 
     if (searchInput) {
         searchInput.addEventListener('input', () => {
@@ -351,11 +376,35 @@ function bindStaticEvents() {
         });
     }
 
+    if (refreshReturnOrdersButton) {
+        refreshReturnOrdersButton.addEventListener('click', () => {
+            loadReturnOrdersPage();
+        });
+    }
+
+    if (returnRequestForm) {
+        returnRequestForm.addEventListener('submit', submitReturnRequestForm);
+    }
+
+    if (returnOrderSelect) {
+        returnOrderSelect.addEventListener('change', () => {
+            renderReturnSelectedOrderSummary();
+        });
+    }
+
     if (refreshAdminOrdersButton) {
         refreshAdminOrdersButton.addEventListener('click', () => {
             loadAdminOrders();
         });
     }
+
+    if (refreshAdminReturnRequestsButton) {
+        refreshAdminReturnRequestsButton.addEventListener('click', () => {
+            loadAdminReturnRequests();
+        });
+    }
+
+    ensureAdminVariantPricesField();
 
     if (adminProductForm) {
         adminProductForm.addEventListener('submit', submitAdminProduct);
@@ -376,6 +425,7 @@ function bindStaticEvents() {
         button.addEventListener('click', () => switchAdminTab(button.dataset.adminTab));
     });
 
+    ensureDetailReviewsTab();
     document.querySelectorAll('[data-detail-tab]').forEach((button) => {
         button.addEventListener('click', () => switchDetailTab(button.dataset.detailTab));
     });
@@ -551,12 +601,86 @@ function handleDocumentClick(event) {
         return;
     }
 
+    const returnButton = event.target.closest('[data-order-return]');
+    if (returnButton) {
+        requestOrderReturn(Number(returnButton.dataset.orderReturn));
+        return;
+    }
+
+    const returnOrderSelectButton = event.target.closest('[data-return-order-select]');
+    if (returnOrderSelectButton) {
+        selectReturnOrderForRequest(Number(returnOrderSelectButton.dataset.returnOrderSelect));
+        return;
+    }
+
     const cancelOrderButton = event.target.closest('[data-order-cancel]');
     if (cancelOrderButton) {
         cancelOrderFromUi(
             Number(cancelOrderButton.dataset.orderCancel),
             cancelOrderButton.dataset.cancelActor || 'customer'
         );
+        return;
+    }
+
+    const returnStatusButton = event.target.closest('[data-return-status]');
+    if (returnStatusButton) {
+        updateAdminReturnRequest(
+            Number(returnStatusButton.dataset.returnRequestId),
+            returnStatusButton.dataset.returnStatus
+        );
+    }
+}
+
+function ensureDetailReviewsTab() {
+    if (!detailReviewsPane || document.querySelector('[data-detail-tab="reviews"]')) return;
+
+    const nav = document.querySelector('.detail-tabs-nav');
+    const policyButton = nav?.querySelector('[data-detail-tab="policy"]');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.detailTab = 'reviews';
+    button.textContent = 'Đánh giá';
+
+    if (policyButton) {
+        nav.insertBefore(button, policyButton);
+    } else {
+        nav?.appendChild(button);
+    }
+}
+
+function ensureAdminVariantPricesField() {
+    if (!adminProductForm || document.getElementById('adminVariantPrices')) return;
+
+    const adminSection = document.getElementById('adminSection');
+    const anchor = adminSection?.closest('label') || adminProductForm.querySelector('.admin-actions');
+    const label = document.createElement('label');
+    label.className = 'full-width';
+    label.innerHTML = `
+        Giá từng biến thể
+        <textarea id="adminVariantPrices" rows="5" placeholder="Trắng|39:2890000, Trắng|40:2990000, Đen|39:3090000"></textarea>
+        <small>Dùng định dạng Màu|Size:Giá. Để trống nếu mỗi biến thể dùng giá chung.</small>
+    `;
+
+    if (anchor) {
+        adminProductForm.insertBefore(label, anchor);
+    } else {
+        adminProductForm.appendChild(label);
+    }
+}
+
+function handleDocumentSubmit(event) {
+    const reviewForm = event.target.closest('#detailReviewForm');
+    if (reviewForm) {
+        event.preventDefault();
+        submitProductReview(reviewForm);
+    }
+}
+
+function handleDocumentChange(event) {
+    const variantSelect = event.target.closest('.product-size-select, .product-color-select');
+    if (variantSelect) {
+        const card = variantSelect.closest('[data-product-id]');
+        updateProductCardVariantPrice(card);
     }
 }
 
@@ -603,7 +727,7 @@ function syncCartWithProducts() {
                 size,
                 color: color || null,
                 quantity: Math.min(Number(item.quantity) || 1, stock),
-                price: getProductSalePrice(product)
+                price: getProductSalePrice(product, color, size)
             };
         }
 
@@ -616,7 +740,7 @@ function syncCartWithProducts() {
             quantity: colors.length
                 ? Math.min(Math.max(1, Number(item.quantity) || 1), stock)
                 : clampQuantity(product, Math.max(1, Number(item.quantity) || 1)),
-            price: getProductSalePrice(product)
+            price: getProductSalePrice(product, color, '')
         };
     }).filter(Boolean);
 
@@ -740,7 +864,7 @@ function renderProductCard(product, showWishlist) {
                     ${colorSelect}
                     ${sizeSelect}
                     <div class="product-bottom">
-                        ${priceHtml}
+                        <div class="product-card-price" data-card-price-for="${product.id}">${priceHtml}</div>
                         <button class="add-to-cart rounded-lg bg-neutral-950 px-4 py-2 text-xs font-extrabold uppercase text-white transition-all duration-300 hover:scale-105 hover:bg-rose-700" type="button" data-product-id="${product.id}"${outOfStock ? ' disabled' : ''}>${escapeHtml(addButtonText)}</button>
                     </div>
                 </div>
@@ -776,6 +900,7 @@ function renderProductDetail(productId = currentDetailProductId) {
     if (gallery) renderDetailGallery(gallery, product);
     renderDetailDescription(product);
     renderRelatedProducts(product);
+    loadProductReviews(product.id);
 
     if (detailCard) {
         detailCard.dataset.productId = product.id;
@@ -850,8 +975,14 @@ function updateDetailVariantState(product) {
     const stock = getVariantStock(product, selectedColor, selectedSize);
     const status = document.getElementById('detailVariantStatus');
     const detailButton = document.querySelector('.add-detail-cart');
+    const detailCard = document.querySelector('.detail-card');
+    const price = document.querySelector('.detail-price');
     const selectionComplete = (!getProductColors(product).length || selectedColor) &&
         (!getProductSizes(product).length || selectedSize);
+    const selectedPrice = getProductSalePrice(product, selectedColor, selectedSize);
+
+    if (price) price.innerHTML = renderPrice(product, selectedColor, selectedSize);
+    if (detailCard) detailCard.dataset.price = selectedPrice;
 
     if (status) {
         status.textContent = selectionComplete
@@ -862,6 +993,7 @@ function updateDetailVariantState(product) {
 
     if (detailButton) {
         detailButton.disabled = !selectionComplete || stock <= 0;
+        detailButton.dataset.price = selectedPrice;
     }
 
     document.querySelectorAll('.detail-card .size-list button').forEach((button) => {
@@ -894,12 +1026,17 @@ function renderVariantInventory(product) {
             colors.length ? color : '',
             sizes.length ? size : ''
         );
-        return `<tr><td>${escapeHtml(color)}</td><td>${escapeHtml(size)}</td><td><strong>${stock}</strong></td></tr>`;
+        const price = getProductSalePrice(product, colors.length ? color : '', sizes.length ? size : '');
+        return `<tr><td>${escapeHtml(color)}</td><td>${escapeHtml(size)}</td><td><strong>${stock}</strong></td><td>${currency.format(price)}</td></tr>`;
     })).join('')}
                 </tbody>
             </table>
         </div>
     `;
+    const headRow = container.querySelector('.variant-stock-table thead tr');
+    if (headRow && headRow.children.length < 4) {
+        headRow.insertAdjacentHTML('beforeend', '<th>Gia</th>');
+    }
 }
 
 function renderDetailGallery(gallery, product) {
@@ -936,6 +1073,158 @@ function renderDetailDescription(product) {
         <p>${escapeHtml(getProductDescription(product))}</p>
         <p>${escapeHtml(getStockSummary(product))}</p>
     `;
+}
+
+async function loadProductReviews(productId) {
+    if (!detailReviewsPane || !productId) return;
+
+    const expectedProductId = Number(productId);
+    detailReviewsPane.innerHTML = '<p class="review-status">Đang tải đánh giá...</p>';
+
+    try {
+        const response = await fetch(`/api/products/${expectedProductId}/reviews`, {
+            headers: authHeaders(false),
+            cache: 'no-store'
+        });
+        const data = await response.json();
+
+        if (Number(currentDetailProductId) !== expectedProductId) return;
+        if (!response.ok) {
+            throw new Error(data.message || 'Không tải được đánh giá.');
+        }
+
+        currentReviewData = data;
+        renderProductReviews(data);
+        updateDetailRatingSummary(data.summary);
+    } catch (error) {
+        detailReviewsPane.innerHTML = `<p class="review-status error">${escapeHtml(error.message)}</p>`;
+        updateDetailRatingSummary({ average: 0, count: 0 });
+    }
+}
+
+function renderProductReviews(data = {}) {
+    if (!detailReviewsPane) return;
+
+    const reviews = Array.isArray(data.reviews) ? data.reviews : [];
+    const summary = data.summary || { average: 0, count: 0 };
+    const reviewableOrders = Array.isArray(data.reviewableOrders) ? data.reviewableOrders : [];
+    const reviewForm = renderReviewForm(data.canReview, reviewableOrders);
+    const reviewItems = reviews.length
+        ? reviews.map(renderReviewItem).join('')
+        : '<p class="review-status">Chưa có đánh giá nào.</p>';
+
+    detailReviewsPane.innerHTML = `
+        <div class="reviews-summary">
+            <div>
+                <strong>${Number(summary.average || 0).toFixed(1)}</strong>
+                <span>${renderStars(summary.average || 0)}</span>
+            </div>
+            <p>${Number(summary.count || 0)} đánh giá</p>
+        </div>
+        ${reviewForm}
+        <div class="reviews-list">${reviewItems}</div>
+    `;
+}
+
+function renderReviewForm(canReview, reviewableOrders) {
+    if (!currentUser?.token) {
+        return '<p class="review-status">Đăng nhập và mua hàng thành công để đánh giá sản phẩm.</p>';
+    }
+
+    if (!canReview) {
+        return '<p class="review-status">Bạn có thể đánh giá sau khi đơn hàng chứa sản phẩm này được giao thành công.</p>';
+    }
+
+    const orderOptions = reviewableOrders.map((order) => {
+        return `<option value="${Number(order.id)}">${escapeHtml(order.orderId || `Đơn #${order.id}`)}</option>`;
+    }).join('');
+
+    return `
+        <form id="detailReviewForm" class="review-form">
+            <label>
+                Điểm đánh giá
+                <select name="rating" required>
+                    <option value="5">5 sao</option>
+                    <option value="4">4 sao</option>
+                    <option value="3">3 sao</option>
+                    <option value="2">2 sao</option>
+                    <option value="1">1 sao</option>
+                </select>
+            </label>
+            <label>
+                Don hang
+                <select name="orderId" required>${orderOptions}</select>
+            </label>
+            <label class="full-width">
+                Nhan xet
+                <textarea name="comment" rows="3" maxlength="2000" placeholder="Chia se cam nhan sau khi mua hang"></textarea>
+            </label>
+            <button type="submit" class="black-btn">Gửi đánh giá</button>
+            <p class="review-form-message"></p>
+        </form>
+    `;
+}
+
+function renderReviewItem(review) {
+    const createdAt = review.createdAt ? new Date(review.createdAt).toLocaleDateString('vi-VN') : '';
+    return `
+        <article class="review-card">
+            <header>
+                <strong>${escapeHtml(review.authorName || 'Khách hàng')}</strong>
+                <span>${renderStars(review.rating || 0)}</span>
+            </header>
+            ${review.comment ? `<p>${escapeHtml(review.comment)}</p>` : ''}
+            <small>${createdAt ? escapeHtml(createdAt) : ''}</small>
+        </article>
+    `;
+}
+
+function renderStars(rating) {
+    const score = Math.round(Number(rating) || 0);
+    return Array.from({ length: 5 }, (_, index) => {
+        return `<i class="bi ${index < score ? 'bi-star-fill' : 'bi-star'}"></i>`;
+    }).join('');
+}
+
+function updateDetailRatingSummary(summary = {}) {
+    const rating = document.querySelector('.detail-card .rating');
+    if (!rating) return;
+
+    const value = rating.querySelector('span');
+    if (value) value.textContent = Number(summary.average || 0).toFixed(1);
+    const count = rating.querySelector('[data-review-count]');
+    if (count) count.textContent = `${Number(summary.count || 0)} đánh giá`;
+}
+
+async function submitProductReview(form) {
+    if (!currentUser?.token || !currentDetailProductId) return;
+
+    const message = form.querySelector('.review-form-message');
+    if (message) message.textContent = 'Đang gửi đánh giá...';
+
+    try {
+        const payload = {
+            rating: Number(form.elements.rating.value),
+            orderId: Number(form.elements.orderId.value),
+            comment: form.elements.comment.value
+        };
+        const response = await fetch(`/api/products/${currentDetailProductId}/reviews`, {
+            method: 'POST',
+            headers: authHeaders(true),
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            if (message) message.textContent = data.message || 'Không gửi được đánh giá.';
+            return;
+        }
+
+        showToast('Đã gửi đánh giá.', 'success');
+        await loadProductReviews(currentDetailProductId);
+    } catch {
+        if (message) message.textContent = 'Không kết nối được server.';
+    }
 }
 
 function renderRelatedProducts(product) {
@@ -1035,6 +1324,28 @@ function addProductFromButton(button) {
     addToCart(product, size, color);
 }
 
+function updateProductCardVariantPrice(card) {
+    if (!card) return;
+
+    const productId = Number(card.dataset.productId || 0);
+    const product = products.find((item) => Number(item.id) === productId);
+    const priceContainer = card.querySelector('.product-card-price');
+    if (!product || !priceContainer) return;
+
+    const colors = getProductColors(product);
+    const sizes = getProductSizes(product);
+    const color = colors.length ? (card.querySelector('.product-color-select')?.value || '') : '';
+    const size = sizes.length ? (card.querySelector('.product-size-select')?.value || '') : '';
+    const selectionComplete = (!colors.length || color) && (!sizes.length || size);
+
+    priceContainer.innerHTML = selectionComplete
+        ? renderPrice(product, color, size)
+        : renderPrice(product);
+    card.dataset.price = selectionComplete
+        ? getProductSalePrice(product, color, size)
+        : getProductSalePrice(product);
+}
+
 function addToCart(product, size, color = '') {
     const productId = Number(product.id);
     const normalizedSize = size ? String(size) : '';
@@ -1059,7 +1370,7 @@ function addToCart(product, size, color = '') {
             size: normalizedSize || null,
             color: normalizedColor || null,
             quantity: 1,
-            price: getProductSalePrice(product)
+            price: getProductSalePrice(product, normalizedColor, normalizedSize)
         });
     }
 
@@ -1645,6 +1956,11 @@ function updateAccountUi() {
         if (orderHistoryPanel) orderHistoryPanel.hidden = true;
         if (orderHistoryList) orderHistoryList.innerHTML = '';
         if (orderHistoryMessage) orderHistoryMessage.textContent = '';
+        if (returnsLoggedOut) returnsLoggedOut.hidden = false;
+        if (returnsPanel) returnsPanel.hidden = true;
+        if (returnOrdersList) returnOrdersList.innerHTML = '';
+        if (returnOrdersMessage) returnOrdersMessage.textContent = '';
+        if (returnsMessage) returnsMessage.textContent = '';
         if (adminOrdersBody) adminOrdersBody.innerHTML = '';
         if (adminOrdersMessage) adminOrdersMessage.textContent = '';
         if (adminPanel) adminPanel.hidden = true;
@@ -1663,12 +1979,18 @@ function updateAccountUi() {
     fillProfileAddressFields(currentUser.address || '');
     updateProfileSummary();
     switchProfileTab('info');
+    if (returnsLoggedOut) returnsLoggedOut.hidden = true;
+    if (returnsPanel) returnsPanel.hidden = false;
     if (orderHistoryPanel) orderHistoryPanel.hidden = false;
     const isProfilePage = window.location.pathname.endsWith('/profile.html');
     if (orderHistoryList && isProfilePage) {
         startUserOrderNotifications();
     } else {
         stopUserOrderNotifications();
+    }
+    const isReturnsPage = window.location.pathname.endsWith('/returns.html');
+    if (returnOrdersList && isReturnsPage) {
+        loadReturnOrdersPage();
     }
     const isAdminPage = window.location.pathname.endsWith('/admin.html');
     if (adminPanel) adminPanel.hidden = currentUser.role !== 'Admin' || !isAdminPage;
@@ -1681,6 +2003,7 @@ function updateAccountUi() {
     }
     if (currentUser.role === 'Admin') {
         renderAdminStats();
+        loadAdminRevenueSummary();
         if (adminOrdersBody && isAdminPage) {
             startAdminOrderNotifications();
         } else {
@@ -1714,6 +2037,9 @@ function switchAdminTab(tab) {
 
     if (normalizedTab === 'orders') {
         loadAdminOrders();
+    }
+    if (normalizedTab === 'returns') {
+        loadAdminReturnRequests();
     }
 }
 
@@ -1777,22 +2103,26 @@ async function loadOrderHistory() {
             return;
         }
 
-        const fetchedOrders = Array.isArray(data.orders) ? data.orders : [];
-        const ordersById = new Map(fetchedOrders.map((order) => [Number(order.id), order]));
-        userOrders.forEach((existingOrder) => {
-            const fetchedOrder = ordersById.get(Number(existingOrder.id));
-            if (!fetchedOrder || getOrderUpdatedTime(existingOrder) > getOrderUpdatedTime(fetchedOrder)) {
-                ordersById.set(Number(existingOrder.id), existingOrder);
-            }
-        });
-        userOrders = Array.from(ordersById.values())
-            .sort((a, b) => Number(b.id) - Number(a.id));
+        mergeUserOrders(Array.isArray(data.orders) ? data.orders : []);
         renderOrderHistory(userOrders);
         return userOrders;
     } catch {
         orderHistoryMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
         return null;
     }
+}
+
+function mergeUserOrders(fetchedOrders) {
+    const ordersById = new Map((Array.isArray(fetchedOrders) ? fetchedOrders : []).map((order) => [Number(order.id), order]));
+    userOrders.forEach((existingOrder) => {
+        const fetchedOrder = ordersById.get(Number(existingOrder.id));
+        if (!fetchedOrder || getOrderUpdatedTime(existingOrder) > getOrderUpdatedTime(fetchedOrder)) {
+            ordersById.set(Number(existingOrder.id), existingOrder);
+        }
+    });
+    userOrders = Array.from(ordersById.values())
+        .sort((a, b) => Number(b.id) - Number(a.id));
+    return userOrders;
 }
 
 function renderOrderHistory(orders) {
@@ -1805,12 +2135,15 @@ function renderOrderHistory(orders) {
     orderHistoryList.innerHTML = orders.map((order) => {
         const items = Array.isArray(order.items) ? order.items : [];
         const createdAt = order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '';
+        const fulfillmentStatus = normalizeOrderFulfillmentStatus(order.fulfillmentStatus);
         const itemRows = items.map((item) => {
             const size = item.size ? ` - Kích cỡ ${escapeHtml(item.size)}` : '';
             const color = item.color ? ` - Màu ${escapeHtml(item.color)}` : '';
-            return `<li>${escapeHtml(item.name)}${color}${size} x ${Number(item.quantity) || 0}</li>`;
+            const reviewLink = fulfillmentStatus === 'DELIVERED' && item.productId
+                ? ` <a class="order-review-link" href="/product.html?id=${encodeURIComponent(item.productId)}&review=1">Đánh giá</a>`
+                : '';
+            return `<li>${escapeHtml(item.name)}${color}${size} x ${Number(item.quantity) || 0}${reviewLink}</li>`;
         }).join('');
-        const fulfillmentStatus = normalizeOrderFulfillmentStatus(order.fulfillmentStatus);
         const receivedButton = fulfillmentStatus === 'SHIPPING'
             ? `<button type="button" class="order-received-button" data-order-received="${Number(order.id)}">
                 <i class="bi bi-box2-heart"></i> Xác nhận đã nhận hàng
@@ -1823,6 +2156,18 @@ function renderOrderHistory(orders) {
             ? `<button type="button" class="order-cancel-button" data-order-cancel="${Number(order.id)}" data-cancel-actor="customer">
                 <i class="bi bi-x-circle"></i> Hủy đơn hàng
                </button>`
+            : '';
+        const returnButton = order.canRequestReturn
+            ? `<a class="order-return-button" href="/returns.html?order=${encodeURIComponent(Number(order.id))}">
+                <i class="bi bi-arrow-counterclockwise"></i> Yêu cầu đổi/trả
+               </a>`
+            : '';
+        const returnState = order.returnRequest
+            ? `<div class="order-return-state">
+                <strong>${escapeHtml(getReturnRequestTypeLabel(order.returnRequest.type))}</strong>
+                <span>${escapeHtml(getReturnRequestStatusLabel(order.returnRequest.status))}</span>
+                ${order.returnRequest.adminNote ? `<small>${escapeHtml(order.returnRequest.adminNote)}</small>` : ''}
+               </div>`
             : '';
 
         return `
@@ -1842,10 +2187,296 @@ function renderOrderHistory(orders) {
                 </footer>
                 ${receivedButton}
                 ${cancelButton}
+                ${returnButton}
+                ${returnState}
             </article>
         `;
     }).join('');
     orderHistoryMessage.textContent = '';
+}
+
+async function loadReturnOrdersPage() {
+    if (!currentUser?.token || !returnOrdersList || !returnOrdersMessage) return null;
+
+    returnOrdersMessage.textContent = 'Đang tải đơn hàng...';
+
+    try {
+        const response = await fetch('/api/orders/me', {
+            headers: authHeaders(false),
+            cache: 'no-store'
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            returnOrdersMessage.textContent = data.message || 'Không tải được danh sách đơn hàng.';
+            if (returnOrdersList) returnOrdersList.innerHTML = '';
+            renderReturnOrderOptions([]);
+            renderReturnSelectedOrderSummary();
+            return null;
+        }
+
+        mergeUserOrders(Array.isArray(data.orders) ? data.orders : []);
+        renderReturnOrdersPage(userOrders);
+        return userOrders;
+    } catch {
+        returnOrdersMessage.textContent = 'Không kết nối được server.';
+        if (returnOrdersList) returnOrdersList.innerHTML = '';
+        renderReturnOrderOptions([]);
+        renderReturnSelectedOrderSummary();
+        return null;
+    }
+}
+
+function renderReturnOrdersPage(orders) {
+    if (!returnOrdersList) return;
+
+    const normalizedOrders = Array.isArray(orders) ? orders : [];
+    renderReturnOrderOptions(normalizedOrders);
+    renderReturnSelectedOrderSummary();
+
+    if (!normalizedOrders.length) {
+        returnOrdersList.innerHTML = '<p class="empty-cart">Chưa có đơn hàng.</p>';
+        if (returnOrdersMessage) returnOrdersMessage.textContent = '';
+        return;
+    }
+
+    returnOrdersList.innerHTML = normalizedOrders.map(renderReturnOrderCard).join('');
+    if (returnOrdersMessage) returnOrdersMessage.textContent = '';
+}
+
+function renderReturnOrderOptions(orders) {
+    if (!returnOrderSelect) return;
+
+    const eligibleOrders = orders.filter((order) => order.canRequestReturn);
+    const currentValue = Number(returnOrderSelect.value);
+    const requestedOrderId = Number(new URLSearchParams(window.location.search).get('order'));
+    const selectedOrderId = eligibleOrders.some((order) => Number(order.id) === currentValue)
+        ? currentValue
+        : eligibleOrders.some((order) => Number(order.id) === requestedOrderId)
+            ? requestedOrderId
+            : Number(eligibleOrders[0]?.id || 0);
+
+    const placeholder = eligibleOrders.length
+        ? '<option value="">Chọn đơn hàng</option>'
+        : '<option value="">Không có đơn đủ điều kiện</option>';
+    const options = orders.map((order) => {
+        const disabled = order.canRequestReturn ? '' : ' disabled';
+        const selected = Number(order.id) === selectedOrderId ? ' selected' : '';
+        const label = `${order.orderId || `Đơn #${order.id}`} - ${currency.format(Number(order.amount) || 0)} - ${getReturnOrderOptionStatus(order)}`;
+        return `<option value="${Number(order.id)}"${disabled}${selected}>${escapeHtml(label)}</option>`;
+    }).join('');
+
+    returnOrderSelect.innerHTML = `${placeholder}${options}`;
+    returnOrderSelect.disabled = !eligibleOrders.length;
+    if (returnRequestType) returnRequestType.disabled = !eligibleOrders.length;
+    if (returnReason) returnReason.disabled = !eligibleOrders.length;
+    if (submitReturnRequestButton) submitReturnRequestButton.disabled = !eligibleOrders.length;
+}
+
+function renderReturnSelectedOrderSummary() {
+    if (!returnSelectedOrderSummary || !returnOrderSelect) return;
+
+    const order = userOrders.find((entry) => Number(entry.id) === Number(returnOrderSelect.value));
+    if (!order) {
+        returnSelectedOrderSummary.hidden = true;
+        returnSelectedOrderSummary.innerHTML = '';
+        return;
+    }
+
+    const items = Array.isArray(order.items) ? order.items : [];
+    const itemSummary = items
+        .map((item) => {
+            const color = item.color ? `, màu ${item.color}` : '';
+            const size = item.size ? `, kích cỡ ${item.size}` : '';
+            return `${item.name}${color}${size} x ${Number(item.quantity) || 0}`;
+        })
+        .join('; ');
+    const deadline = getReturnDeadlineText(order);
+
+    returnSelectedOrderSummary.innerHTML = `
+        <strong>${escapeHtml(order.orderId || '')}</strong>
+        <span>${escapeHtml(currency.format(Number(order.amount) || 0))}${deadline ? ` - ${escapeHtml(deadline)}` : ''}</span>
+        ${itemSummary ? `<small>${escapeHtml(itemSummary)}</small>` : ''}
+    `;
+    returnSelectedOrderSummary.hidden = false;
+}
+
+function renderReturnOrderCard(order) {
+    const fulfillmentStatus = normalizeOrderFulfillmentStatus(order.fulfillmentStatus);
+    const createdAt = formatOrderDate(order.createdAt);
+    const items = Array.isArray(order.items) ? order.items : [];
+    const itemRows = items.map((item) => {
+        const size = item.size ? ` - Kích cỡ ${escapeHtml(item.size)}` : '';
+        const color = item.color ? ` - Màu ${escapeHtml(item.color)}` : '';
+        return `<li>${escapeHtml(item.name)}${color}${size} x ${Number(item.quantity) || 0}</li>`;
+    }).join('');
+    const statusClass = order.canRequestReturn
+        ? ''
+        : order.returnRequest?.status === 'REJECTED'
+            ? ' rejected'
+            : ' locked';
+    const statusLabel = order.canRequestReturn
+        ? 'Có thể yêu cầu'
+        : order.returnRequest
+            ? getReturnRequestStatusLabel(order.returnRequest.status)
+            : 'Chưa đủ điều kiện';
+    const returnState = order.returnRequest
+        ? `<div class="order-return-state">
+            <strong>${escapeHtml(getReturnRequestTypeLabel(order.returnRequest.type))}</strong>
+            <span>${escapeHtml(getReturnRequestStatusLabel(order.returnRequest.status))}</span>
+            ${order.returnRequest.reason ? `<small>${escapeHtml(order.returnRequest.reason)}</small>` : ''}
+            ${order.returnRequest.adminNote ? `<small>${escapeHtml(order.returnRequest.adminNote)}</small>` : ''}
+           </div>`
+        : '';
+    const action = order.canRequestReturn
+        ? `<button type="button" class="return-order-select-button" data-return-order-select="${Number(order.id)}">Chọn đơn này</button>`
+        : '';
+    const note = order.canRequestReturn
+        ? getReturnDeadlineText(order)
+        : getReturnUnavailableReason(order);
+
+    return `
+        <article class="return-order-card ${order.canRequestReturn ? 'eligible' : ''}">
+            <header>
+                <div>
+                    <h3>${escapeHtml(order.orderId || '')}</h3>
+                    <small>${escapeHtml(getOrderFulfillmentLabel(fulfillmentStatus))}${createdAt ? ` - ${escapeHtml(createdAt)}` : ''}</small>
+                </div>
+                <span class="return-order-status${statusClass}">${escapeHtml(statusLabel)}</span>
+            </header>
+            <ul>${itemRows}</ul>
+            ${returnState}
+            <footer>
+                <p>${escapeHtml(note)}</p>
+                <strong>${currency.format(Number(order.amount) || 0)}</strong>
+                ${action}
+            </footer>
+        </article>
+    `;
+}
+
+function selectReturnOrderForRequest(orderId) {
+    if (!returnOrderSelect || !orderId) return;
+
+    returnOrderSelect.value = String(orderId);
+    renderReturnSelectedOrderSummary();
+
+    const targetUrl = new URL(window.location.href);
+    targetUrl.searchParams.set('order', String(orderId));
+    window.history.replaceState(null, '', targetUrl);
+
+    returnRequestForm?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    returnReason?.focus();
+}
+
+async function submitReturnRequestForm(event) {
+    event.preventDefault();
+    if (!currentUser?.token || !returnOrderSelect || !returnRequestType || !returnReason) return;
+
+    const orderId = Number(returnOrderSelect.value);
+    const type = String(returnRequestType.value || '').trim().toLowerCase();
+    const reason = String(returnReason.value || '').trim();
+    const order = userOrders.find((entry) => Number(entry.id) === orderId);
+
+    if (!orderId || !order?.canRequestReturn) {
+        if (returnsMessage) returnsMessage.textContent = 'Vui lòng chọn đơn hàng đủ điều kiện đổi/trả.';
+        return;
+    }
+
+    if (!['return', 'exchange'].includes(type)) {
+        if (returnsMessage) returnsMessage.textContent = 'Loại yêu cầu không hợp lệ.';
+        return;
+    }
+
+    if (!reason) {
+        if (returnsMessage) returnsMessage.textContent = 'Vui lòng nhập lý do đổi/trả hàng.';
+        return;
+    }
+
+    const request = await createOrderReturnRequest(orderId, type, reason, {
+        button: submitReturnRequestButton,
+        messageElement: returnsMessage
+    });
+
+    if (!request) return;
+
+    if (returnReason) returnReason.value = '';
+    renderReturnOrdersPage(userOrders);
+    if (orderHistoryList) renderOrderHistory(userOrders);
+}
+
+async function createOrderReturnRequest(orderId, type, reason, options = {}) {
+    const { button, messageElement } = options;
+    if (!currentUser?.token || !orderId) return null;
+
+    if (button) button.disabled = true;
+    if (messageElement) messageElement.textContent = 'Đang gửi yêu cầu đổi/trả...';
+
+    try {
+        const response = await fetch(`/api/orders/${orderId}/return-request`, {
+            method: 'POST',
+            headers: authHeaders(true),
+            body: JSON.stringify({ type, reason })
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.returnRequest) {
+            if (messageElement) messageElement.textContent = data.message || 'Không tạo được yêu cầu đổi/trả.';
+            showToast(data.message || 'Không tạo được yêu cầu đổi/trả.', 'error');
+            if (button) button.disabled = false;
+            return null;
+        }
+
+        userOrders = userOrders.map((order) => {
+            if (Number(order.id) !== Number(orderId)) return order;
+            return {
+                ...order,
+                canRequestReturn: false,
+                returnRequest: data.returnRequest
+            };
+        });
+        if (messageElement) messageElement.textContent = 'Đã gửi yêu cầu đổi/trả.';
+        showToast('Đã gửi yêu cầu đổi/trả.', 'success');
+        return data.returnRequest;
+    } catch {
+        if (messageElement) messageElement.textContent = 'Không kết nối được server.';
+        showToast('Không kết nối được server.', 'error');
+        if (button) button.disabled = false;
+        return null;
+    }
+}
+
+function getReturnOrderOptionStatus(order) {
+    if (order.canRequestReturn) return 'Có thể yêu cầu';
+    if (order.returnRequest) return getReturnRequestStatusLabel(order.returnRequest.status);
+    return getReturnUnavailableReason(order);
+}
+
+function getReturnUnavailableReason(order) {
+    if (order.returnRequest) {
+        return `Đã có yêu cầu ${getReturnRequestTypeLabel(order.returnRequest.type).toLowerCase()}.`;
+    }
+
+    const status = normalizeOrderFulfillmentStatus(order.fulfillmentStatus);
+    if (status === CANCELLED_FULFILLMENT_STATUS) return 'Đơn hàng đã hủy.';
+    if (status !== 'DELIVERED') return 'Chỉ đổi/trả sau khi nhận hàng thành công.';
+    if (!order.receivedAt) return 'Chưa ghi nhận thời điểm nhận hàng.';
+    return 'Đã quá thời hạn đổi/trả 7 ngày.';
+}
+
+function getReturnDeadlineText(order) {
+    if (!order.returnEligibleUntil) return '';
+
+    const deadline = formatOrderDate(order.returnEligibleUntil);
+    return deadline ? `Hạn đổi/trả: ${deadline}` : '';
+}
+
+function formatOrderDate(value) {
+    if (!value) return '';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString('vi-VN');
 }
 
 function renderOrderFulfillmentProgress(status) {
@@ -1885,6 +2516,21 @@ function normalizeOrderFulfillmentStatus(value) {
 function getOrderFulfillmentLabel(status) {
     if (status === CANCELLED_FULFILLMENT_STATUS) return 'Đã hủy';
     return ORDER_FULFILLMENT_STEPS.find((step) => step.value === status)?.label || 'Đã đặt hàng';
+}
+
+function getReturnRequestTypeLabel(type) {
+    return String(type || '').toLowerCase() === 'exchange' ? 'Đổi hàng' : 'Trả hàng';
+}
+
+function getReturnRequestStatusLabel(status) {
+    const normalized = String(status || '').toUpperCase();
+    const labels = {
+        PENDING: 'Đang chờ xử lý',
+        APPROVED: 'Đã chấp nhận',
+        REJECTED: 'Đã từ chối',
+        COMPLETED: 'Đã hoàn tất'
+    };
+    return labels[normalized] || labels.PENDING;
 }
 
 function getOrderUpdatedTime(order) {
@@ -1930,7 +2576,7 @@ async function connectUserOrderStream(generation) {
         });
 
         if (!response.ok || !response.body) {
-            throw new Error('Khong mo duoc ket noi trang thai don hang');
+            throw new Error('Không mở được kết nối trạng thái đơn hàng');
         }
 
         const reader = response.body.getReader();
@@ -2026,6 +2672,12 @@ async function confirmUserOrderReceived(orderId) {
     }
 }
 
+async function requestOrderReturn(orderId) {
+    if (!currentUser?.token || !orderId) return;
+
+    window.location.href = `/returns.html?order=${encodeURIComponent(orderId)}`;
+}
+
 async function cancelOrderFromUi(orderId, actor) {
     if (!currentUser?.token || !orderId) return;
 
@@ -2097,10 +2749,186 @@ async function loadAdminOrders() {
             .sort((a, b) => Number(b.id) - Number(a.id));
         renderAdminOrders(adminOrders);
         renderAdminStats(adminOrders);
+        loadAdminRevenueSummary();
         return adminOrders;
     } catch {
         adminOrdersMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
         return null;
+    }
+}
+
+async function loadAdminRevenueSummary() {
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !adminRevenueBreakdown) return null;
+
+    try {
+        const response = await fetch('/api/admin/revenue-summary', {
+            headers: authHeaders(false),
+            cache: 'no-store'
+        });
+        const data = await response.json();
+        if (!response.ok || !data.summary) {
+            throw new Error(data.message || 'Không tải được doanh thu.');
+        }
+
+        adminRevenueSummary = data.summary;
+        renderAdminRevenueSummary(adminRevenueSummary);
+        if (statRevenue) statRevenue.textContent = currency.format(Number(data.summary.totals?.revenue) || 0);
+        if (statOrderCount) statOrderCount.textContent = Number(data.summary.totals?.orderCount) || 0;
+        return adminRevenueSummary;
+    } catch {
+        return null;
+    }
+}
+
+function renderAdminRevenueSummary(summary) {
+    if (!adminRevenueBreakdown) return;
+
+    const daily = Array.isArray(summary?.daily) ? summary.daily.slice(-7) : [];
+    const monthly = Array.isArray(summary?.monthly) ? summary.monthly.slice(-6) : [];
+    const yearly = Array.isArray(summary?.yearly) ? summary.yearly.slice(-5) : [];
+
+    adminRevenueBreakdown.innerHTML = `
+        ${renderRevenueGroup('Theo ngày', daily)}
+        ${renderRevenueGroup('Theo tháng', monthly)}
+        ${renderRevenueGroup('Theo năm', yearly)}
+    `;
+}
+
+function renderRevenueGroup(title, rows) {
+    const items = rows.length
+        ? rows.map((row) => `
+            <li>
+                <span>${escapeHtml(row.period)}</span>
+                <strong>${currency.format(Number(row.revenue) || 0)}</strong>
+                <small>${Number(row.orderCount) || 0} đơn</small>
+            </li>
+        `).join('')
+        : '<li><span>Chưa có dữ liệu</span><strong>0</strong><small>0 đơn</small></li>';
+
+    return `
+        <article>
+            <h4>${escapeHtml(title)}</h4>
+            <ul>${items}</ul>
+        </article>
+    `;
+}
+
+async function loadAdminReturnRequests() {
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !adminReturnRequestsBody || !adminReturnRequestsMessage) return null;
+
+    adminReturnRequestsMessage.textContent = 'Đang tải yêu cầu đổi/trả...';
+
+    try {
+        const response = await fetch('/api/admin/return-requests', {
+            headers: authHeaders(false),
+            cache: 'no-store'
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            adminReturnRequestsMessage.textContent = data.message || 'Không tải được yêu cầu đổi/trả.';
+            return null;
+        }
+
+        adminReturnRequests = Array.isArray(data.requests) ? data.requests : [];
+        renderAdminReturnRequests(adminReturnRequests);
+        return adminReturnRequests;
+    } catch {
+        adminReturnRequestsMessage.textContent = 'Không kết nối được server.';
+        return null;
+    }
+}
+
+function renderAdminReturnRequests(requests) {
+    if (!adminReturnRequestsBody) return;
+
+    if (!requests.length) {
+        adminReturnRequestsBody.innerHTML = '<tr><td colspan="5">Chưa có yêu cầu đổi/trả.</td></tr>';
+        if (adminReturnRequestsMessage) adminReturnRequestsMessage.textContent = '';
+        return;
+    }
+
+    adminReturnRequestsBody.innerHTML = requests.map((request) => {
+        const customer = request.customer || {};
+        const customerDetails = [customer.username ? `@${customer.username}` : '', customer.phone || '', customer.address || '']
+            .filter(Boolean)
+            .map(escapeHtml)
+            .join('<br>');
+        return `
+            <tr>
+                <td>
+                    <strong>${escapeHtml(request.orderId || '')}</strong>
+                    <small>${currency.format(Number(request.amount) || 0)}</small>
+                </td>
+                <td>
+                    <div class="admin-customer">
+                        <span>${escapeHtml(customer.fullName || customer.username || 'Khách hàng')}</span>
+                        <small>${customerDetails}</small>
+                    </div>
+                </td>
+                <td>
+                    <strong>${escapeHtml(getReturnRequestTypeLabel(request.type))}</strong>
+                    <small>${escapeHtml(request.reason || '')}</small>
+                </td>
+                <td>
+                    <span class="return-status">${escapeHtml(getReturnRequestStatusLabel(request.status))}</span>
+                    ${request.adminNote ? `<small>${escapeHtml(request.adminNote)}</small>` : ''}
+                </td>
+                <td>${renderReturnRequestActions(request)}</td>
+            </tr>
+        `;
+    }).join('');
+    if (adminReturnRequestsMessage) adminReturnRequestsMessage.textContent = '';
+}
+
+function renderReturnRequestActions(request) {
+    const status = String(request.status || '').toUpperCase();
+    if (status === 'PENDING') {
+        return `
+            <div class="admin-row-actions">
+                <button type="button" data-return-request-id="${Number(request.id)}" data-return-status="APPROVED">Duyệt</button>
+                <button type="button" data-return-request-id="${Number(request.id)}" data-return-status="REJECTED">Từ chối</button>
+            </div>
+        `;
+    }
+
+    if (status === 'APPROVED') {
+        return `
+            <div class="admin-row-actions">
+                <button type="button" data-return-request-id="${Number(request.id)}" data-return-status="COMPLETED">Hoàn tất</button>
+            </div>
+        `;
+    }
+
+    return '<small>Đã xử lý</small>';
+}
+
+async function updateAdminReturnRequest(requestId, status) {
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !requestId) return;
+
+    const adminNote = prompt('Ghi chú cho khách hàng (có thể để trống)', '');
+    if (adminNote === null) return;
+
+    try {
+        const response = await fetch(`/api/admin/return-requests/${requestId}`, {
+            method: 'PUT',
+            headers: authHeaders(true),
+            body: JSON.stringify({ status, adminNote })
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.returnRequest) {
+            showToast(data.message || 'Không cập nhật được yêu cầu.', 'error');
+            return;
+        }
+
+        adminReturnRequests = adminReturnRequests.map((request) => {
+            return Number(request.id) === Number(requestId) ? data.returnRequest : request;
+        });
+        renderAdminReturnRequests(adminReturnRequests);
+        showToast('Đã cập nhật yêu cầu đổi/trả.', 'success');
+    } catch {
+        showToast('Không kết nối được server.', 'error');
     }
 }
 
@@ -2142,7 +2970,7 @@ async function connectAdminOrderStream(generation) {
         });
 
         if (!response.ok || !response.body) {
-            throw new Error('Khong mo duoc ket noi thong bao don hang');
+            throw new Error('Không mở được kết nối thông báo đơn hàng');
         }
 
         const reader = response.body.getReader();
@@ -2207,6 +3035,7 @@ function handleAdminOrderEvent(rawEvent) {
         }
         renderAdminOrders(adminOrders);
         renderAdminStats(adminOrders);
+        loadAdminRevenueSummary();
         showToast(
             `Có đơn hàng mới ${payload.orderId} - ${currency.format(Number(payload.amount) || 0)}`,
             'info',
@@ -2239,6 +3068,13 @@ function handleAdminOrderEvent(rawEvent) {
             };
         });
         renderAdminOrders(adminOrders);
+        loadAdminRevenueSummary();
+        return;
+    }
+
+    if (eventName === 'order.return_requested') {
+        loadAdminReturnRequests();
+        showToast(`Có yêu cầu đổi/trả cho đơn ${payload.orderId || ''}`, 'info', 6000);
     }
 }
 
@@ -2499,12 +3335,14 @@ async function submitAdminProduct(event) {
     const colors = splitList(document.getElementById('adminColors')?.value);
     const stockInput = document.getElementById('adminStock').value;
     const images = splitImageList(document.getElementById('adminImage').value);
+    const price = Number(document.getElementById('adminPrice').value);
+    const variantPricesInput = document.getElementById('adminVariantPrices')?.value || '';
     const payload = {
         description: document.getElementById('adminDescription').value,
         name: document.getElementById('adminName').value,
         category,
         displayCategory: displayCategoryFromType(category),
-        price: Number(document.getElementById('adminPrice').value),
+        price,
         salePercent: Number(document.getElementById('adminSalePercent').value) || 0,
         image: images[0] || '',
         images: images.slice(1),
@@ -2512,10 +3350,10 @@ async function submitAdminProduct(event) {
         colors,
         stock: colors.length ? {} : parseStock(stockInput),
         variantStock: colors.length ? parseVariantStock(stockInput, colors, sizes) : {},
+        variantPrices: parseVariantPrices(variantPricesInput, colors, sizes),
         totalStock: sizes.length || colors.length ? null : parseTotalStock(stockInput),
         section: document.getElementById('adminSection').value
     };
-console.log('Submitting product payload:', payload);
     const url = id ? `/api/products/${id}` : '/api/products';
     const method = id ? 'PUT' : 'POST';
     adminMessage.textContent = contentText('messages.admin.saving', 'Đang lưu...');
@@ -2561,7 +3399,7 @@ function renderAdminProducts() {
                 <small>${escapeHtml(product.section === 'new' ? newSectionLabel : allSectionLabel)}</small>
             </td>
             <td>${escapeHtml(product.displayCategory)}</td>
-            <td>${renderPrice(product)}</td>
+            <td>${renderPrice(product)}${formatVariantPriceSummary(product) ? `<small>${escapeHtml(formatVariantPriceSummary(product))}</small>` : ''}</td>
             <td><span class="sale-pill">${getProductSalePercent(product)}%</span></td>
             <td>${escapeHtml(formatStock(product))}</td>
             <td>
@@ -2589,6 +3427,8 @@ function fillAdminForm(productId) {
     const adminColors = document.getElementById('adminColors');
     if (adminColors) adminColors.value = getProductColors(product).join(',');
     document.getElementById('adminStock').value = formatStock(product);
+    const adminVariantPrices = document.getElementById('adminVariantPrices');
+    if (adminVariantPrices) adminVariantPrices.value = formatVariantPrices(product);
     document.getElementById('adminSection').value = product.section || 'products';
     adminMessage.textContent = contentText('messages.admin.editing', 'Đang sửa sản phẩm.');
     updateAdminImagePreview();
@@ -2727,8 +3567,22 @@ function getProductTotalStock(product) {
     return Number.isFinite(totalStock) ? Math.max(0, totalStock) : null;
 }
 
-function getProductBasePrice(product) {
-    return Math.max(0, Number(product?.price) || 0);
+function getProductBasePrice(product, color = '', size = '') {
+    const fallback = Math.max(0, Math.round(Number(product?.price) || 0));
+    const variantPrices = product?.variantPrices;
+    if (!variantPrices || typeof variantPrices !== 'object' || Array.isArray(variantPrices)) {
+        return fallback;
+    }
+
+    const colors = getProductColors(product);
+    const sizes = getProductSizes(product);
+    if (!colors.length && !sizes.length) return fallback;
+
+    const colorKey = colors.length ? String(color || '').trim() : '__default__';
+    const sizeKey = sizes.length ? String(size || '').trim() : '__default__';
+    const price = Number(variantPrices?.[colorKey]?.[sizeKey]);
+
+    return Number.isFinite(price) && price >= 0 ? Math.round(price) : fallback;
 }
 
 function getProductSalePercent(product) {
@@ -2737,17 +3591,17 @@ function getProductSalePercent(product) {
     return Math.min(95, Math.max(0, Math.trunc(salePercent)));
 }
 
-function getProductSalePrice(product) {
-    const basePrice = getProductBasePrice(product);
+function getProductSalePrice(product, color = '', size = '') {
+    const basePrice = getProductBasePrice(product, color, size);
     const salePercent = getProductSalePercent(product);
     if (!salePercent) return basePrice;
     return Math.max(0, Math.round(basePrice * (100 - salePercent) / 100));
 }
 
-function renderPrice(product) {
+function renderPrice(product, color = '', size = '') {
     const salePercent = getProductSalePercent(product);
-    const basePrice = getProductBasePrice(product);
-    const salePrice = getProductSalePrice(product);
+    const basePrice = getProductBasePrice(product, color, size);
+    const salePrice = getProductSalePrice(product, color, size);
 
     if (!salePercent) {
         return `<strong>${currency.format(basePrice)}</strong>`;
@@ -2897,9 +3751,66 @@ function parseVariantStock(value, colors, sizes) {
     return result;
 }
 
+function parseVariantPrices(value, colors, sizes) {
+    const text = String(value || '').trim();
+    if (!text || (!colors.length && !sizes.length)) return {};
+
+    const colorKeys = colors.length ? colors : ['__default__'];
+    const sizeKeys = sizes.length ? sizes : ['__default__'];
+    const result = {};
+
+    text
+        .split(/[\r\n,]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .forEach((entry) => {
+            const separator = entry.lastIndexOf(':');
+            if (separator < 0) return;
+
+            const variant = entry.slice(0, separator).trim();
+            const price = Math.max(0, Math.round(Number(entry.slice(separator + 1).trim()) || 0));
+            const [rawColor = '-', rawSize = '-'] = variant.split('|').map((part) => part.trim());
+            const color = colors.length ? rawColor : '__default__';
+            const size = sizes.length ? rawSize : '__default__';
+
+            if (!colorKeys.includes(color) || !sizeKeys.includes(size)) return;
+            if (!result[color]) result[color] = {};
+            result[color][size] = price;
+        });
+
+    return result;
+}
+
 function parseTotalStock(value) {
     const totalStock = Number(String(value || '').trim());
     return Number.isFinite(totalStock) ? Math.max(0, Math.trunc(totalStock)) : null;
+}
+
+function formatVariantPrices(product) {
+    const colors = getProductColors(product);
+    const sizes = getProductSizes(product);
+    const variantPrices = product?.variantPrices;
+    if (!variantPrices || typeof variantPrices !== 'object' || Array.isArray(variantPrices)) return '';
+
+    const basePrice = Math.max(0, Math.round(Number(product?.price) || 0));
+    const colorValues = colors.length ? colors : ['__default__'];
+    const sizeValues = sizes.length ? sizes : ['__default__'];
+
+    return colorValues.flatMap((color) => {
+        return sizeValues.map((size) => {
+            const price = Number(variantPrices?.[color]?.[size]);
+            if (!Number.isFinite(price) || Math.round(price) === basePrice) return '';
+
+            const displayColor = colors.length ? color : '-';
+            const displaySize = sizes.length ? size : '-';
+            return `${displayColor}|${displaySize}:${Math.round(price)}`;
+        });
+    }).filter(Boolean).join(', ');
+}
+
+function formatVariantPriceSummary(product) {
+    const text = formatVariantPrices(product);
+    return text ? `Biến thể: ${text}` : '';
 }
 
 function formatStock(product) {

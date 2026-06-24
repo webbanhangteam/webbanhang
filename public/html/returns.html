@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Thông tin cá nhân và lịch sử đơn hàng.">
-    <title>Thông tin cá nhân | Shop Anh Thuận</title>
+    <meta name="description" content="Tạo và theo dõi yêu cầu đổi trả theo từng đơn hàng tại Shop Anh Thuận.">
+    <title>Đổi trả theo đơn hàng | Shop Anh Thuận</title>
     <link rel="icon" type="image/png" href="/image/logo-nonbg.png?v=5">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,92 +22,87 @@
     <header class="site-header sticky-top">
         <nav class="navbar navbar-light bg-white shadow-sm">
             <div class="container-fluid page-pad nav-shell">
-                <a class="brand" href="/"><img src="/image/logo.png" alt=""><span>Shop Anh
-                        Thuận</span></a>
+                <a class="brand" href="/">
+                    <img src="/image/logo.png" alt="">
+                    <span>Shop Anh Thuận</span>
+                </a>
                 <div class="header-actions">
-                    <a class="outline-btn page-link-button" href="/returns.html">Đổi/trả</a>
-                    <a class="outline-btn page-link-button" href="/">Tiếp tục mua sắm</a>
+                    <a class="outline-btn page-link-button" href="/profile.html">Tài khoản</a>
+                    <a class="outline-btn page-link-button" href="/return-policy.html">Chính sách</a>
                 </div>
             </div>
         </nav>
     </header>
 
     <main class="standalone-page">
-        <section class="profile-section page-pad">
-            <div id="profileLoggedOut" class="account-band">
+        <section class="returns-page page-pad">
+            <div class="detail-breadcrumb">
+                <a href="/">Trang chủ</a><i class="bi bi-chevron-right"></i><span>Đổi trả</span>
+            </div>
+
+            <div id="returnsLoggedOut" class="account-band">
                 <div>
-                    <p>Tài khoản thành viên</p>
-                    <h2>Đăng nhập để quản lý hồ sơ và đơn hàng.</h2>
+                    <p>Đổi trả theo đơn hàng</p>
+                    <h1>Đăng nhập để gửi yêu cầu đổi/trả.</h1>
                 </div>
                 <div class="account-tools">
                     <p id="accountStatus">Chưa đăng nhập</p>
                     <button class="black-btn" type="button" id="openAuthButton">Đăng nhập / Đăng ký</button>
-                    <button class="outline-btn" type="button" id="logoutButton" hidden>Đăng xuất</button>
                 </div>
             </div>
 
-            <div id="profileLoggedIn" class="profile-layout" hidden>
-                <aside class="profile-sidebar">
-                    <div class="profile-avatar-card">
-                        <div class="profile-avatar" id="profileAvatarLetter">U</div>
-                        <h3 class="profile-username" id="profileDisplayName">Thành viên</h3>
-                        <span class="profile-role-badge user" id="profileRoleBadge"><i class="bi bi-person-fill"></i>
-                            Thành viên</span>
+            <div id="returnsPanel" class="returns-panel" hidden>
+                <div class="returns-heading">
+                    <div>
+                        <p class="eyebrow">Trung tâm đổi trả</p>
+                        <h1>Đổi/trả theo từng đơn hàng</h1>
                     </div>
-                    <nav class="profile-nav">
-                        <button type="button" class="active" data-profile-tab="info"><i class="bi bi-person"></i> Thông
-                            tin cá nhân</button>
-                        <button type="button" data-profile-tab="orders"><i class="bi bi-bag-check"></i> Đơn
-                            hàng</button>
-                        <button type="button" data-profile-tab="wishlist"><i class="bi bi-heart"></i> Yêu thích</button>
-                        <button type="button" id="logoutButtonProfile"><i class="bi bi-box-arrow-right"></i> Đăng
-                            xuất</button>
-                    </nav>
-                </aside>
-                <div class="profile-main">
-                    <div class="profile-content-card" id="profileTabInfo">
-                        <h3 class="profile-card-title"><i class="bi bi-person-gear"></i> Thông tin cá nhân</h3>
-                        <form id="profileForm" class="profile-form">
-                            <div class="profile-form-grid">
-                                <label>Họ tên<input id="profileFullName" type="text" autocomplete="name"></label>
-                                <label>Số điện thoại<input id="profilePhone" type="tel" autocomplete="tel"></label>
-                                <label class="form-label">Địa chỉ giao hàng
-
-<div class="address-row">
-    <select id="province">
-        <option value="">Tỉnh / Thành phố</option>
-    </select>
-
-    <select id="ward">
-        <option value="">Phường / Xã</option>
-    </select>
-
-    <input
-        type="text"
-        id="streetAddress"
-        placeholder="Số nhà, tên đường..."
-    >
-</div>
-</label>
-                            </div>
-                            <button class="profile-save-btn" type="submit">Lưu thông tin</button>
-                            <p id="profileMessage" class="checkout-message"></p>
-                        </form>
-                    </div>
-                    <div class="profile-content-card hidden" id="profileTabOrders">
-                        <div class="profile-card-title"><span><i class="bi bi-bag-check"></i> Đơn hàng của
-                                bạn</span><button class="outline-btn compact-button" type="button"
-                                id="refreshOrdersButton">Tải lại</button></div>
-                        <div id="orderHistoryList" class="order-timeline"></div>
-                        <p id="orderHistoryMessage" class="checkout-message"></p>
-                    </div>
-                    <div class="profile-content-card hidden" id="profileTabWishlist">
-                        <h3 class="profile-card-title"><i class="bi bi-heart"></i> Sản phẩm yêu thích</h3>
-                        <div id="wishlistGrid" class="wishlist-grid"></div>
+                    <div class="returns-heading-actions">
+                        <a class="outline-btn page-link-button" href="/profile.html">Xem tài khoản</a>
+                        <button class="outline-btn" type="button" id="logoutButton">Đăng xuất</button>
                     </div>
                 </div>
+
+                <div class="returns-layout">
+                    <form id="returnRequestForm" class="returns-form-card">
+                        <h2><i class="bi bi-arrow-counterclockwise"></i> Tạo yêu cầu</h2>
+
+                        <label>Đơn hàng
+                            <select id="returnOrderSelect" required>
+                                <option value="">Chọn đơn hàng</option>
+                            </select>
+                        </label>
+
+                        <div id="returnSelectedOrderSummary" class="return-selected-order" hidden></div>
+
+                        <label>Loại yêu cầu
+                            <select id="returnRequestType" required>
+                                <option value="return">Trả hàng</option>
+                                <option value="exchange">Đổi hàng</option>
+                            </select>
+                        </label>
+
+                        <label>Lý do
+                            <textarea id="returnReason" rows="5" maxlength="2000" required
+                                placeholder="Ví dụ: sai kích cỡ, lỗi sản phẩm, muốn đổi màu..."></textarea>
+                        </label>
+
+                        <button class="black-btn" type="submit" id="submitReturnRequestButton">
+                            Gửi yêu cầu
+                        </button>
+                        <p id="returnsMessage" class="checkout-message"></p>
+                    </form>
+
+                    <section class="returns-orders-card" aria-labelledby="returnOrdersTitle">
+                        <div class="history-head">
+                            <h2 id="returnOrdersTitle">Đơn hàng của bạn</h2>
+                            <button class="outline-btn" type="button" id="refreshReturnOrdersButton">Tải lại</button>
+                        </div>
+                        <div id="returnOrdersList" class="return-orders-list"></div>
+                        <p id="returnOrdersMessage" class="checkout-message"></p>
+                    </section>
+                </div>
             </div>
-            <div id="orderHistoryPanel" hidden></div>
         </section>
     </main>
 

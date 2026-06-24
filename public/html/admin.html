@@ -42,9 +42,11 @@
                 <div class="stat-card"><div class="stat-icon orders"><i class="bi bi-receipt"></i></div><div class="stat-info"><h4 id="statOrderCount">0</h4><p>Đơn hàng</p></div></div>
                 <div class="stat-card"><div class="stat-icon revenue"><i class="bi bi-currency-dollar"></i></div><div class="stat-info"><h4 id="statRevenue">0đ</h4><p>Doanh thu</p></div></div>
             </div>
+            <div id="adminRevenueBreakdown" class="admin-revenue-breakdown"></div>
             <div class="admin-tabs">
                 <button type="button" class="active" data-admin-tab="products"><i class="bi bi-box-seam"></i> Sản phẩm</button>
                 <button type="button" data-admin-tab="orders"><i class="bi bi-receipt"></i> Đơn hàng <span id="adminNewOrdersBadge" class="admin-new-orders-badge" hidden>0</span></button>
+                <button type="button" data-admin-tab="returns"><i class="bi bi-arrow-counterclockwise"></i> Đổi/trả</button>
             </div>
             <div class="admin-tab-content active" id="adminTabProducts">
                 <div class="admin-grid">
@@ -76,6 +78,13 @@
                     <div class="history-head"><h3>Lịch sử bán hàng</h3><button class="outline-btn" type="button" id="refreshAdminOrdersButton">Tải lại</button></div>
                     <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Mã đơn</th><th>Người đặt</th><th>Sản phẩm</th><th>Trạng thái</th><th>Tổng tiền</th></tr></thead><tbody id="adminOrdersBody"></tbody></table></div>
                     <p id="adminOrdersMessage" class="checkout-message"></p>
+                </div>
+            </div>
+            <div class="admin-tab-content" id="adminTabReturns">
+                <div class="admin-orders">
+                    <div class="history-head"><h3>Yêu cầu đổi/trả</h3><button class="outline-btn" type="button" id="refreshAdminReturnRequestsButton">Tải lại</button></div>
+                    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Đơn hàng</th><th>Khách hàng</th><th>Yêu cầu</th><th>Trạng thái</th><th></th></tr></thead><tbody id="adminReturnRequestsBody"></tbody></table></div>
+                    <p id="adminReturnRequestsMessage" class="checkout-message"></p>
                 </div>
             </div>
         </section>

@@ -57,6 +57,7 @@ async function initDatabase() {
       description TEXT NULL,
       stock JSON NOT NULL,
       variant_stock JSON NULL,
+      variant_prices JSON NULL,
       total_stock INT UNSIGNED NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -109,6 +110,46 @@ async function initDatabase() {
       KEY order_items_product_id_index (product_id),
       CONSTRAINT order_items_order_id_fk FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
       CONSTRAINT order_items_product_id_fk FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS return_requests (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      order_id BIGINT UNSIGNED NOT NULL,
+      user_id INT UNSIGNED NULL,
+      request_type VARCHAR(20) NOT NULL DEFAULT 'return',
+      reason TEXT NULL,
+      status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+      admin_note TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY return_requests_order_unique (order_id),
+      KEY return_requests_user_id_index (user_id),
+      KEY return_requests_status_index (status),
+      CONSTRAINT return_requests_order_id_fk FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+      CONSTRAINT return_requests_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS product_reviews (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      product_id INT UNSIGNED NOT NULL,
+      order_id BIGINT UNSIGNED NOT NULL,
+      user_id INT UNSIGNED NULL,
+      rating TINYINT UNSIGNED NOT NULL,
+      comment TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY product_reviews_product_order_user_unique (product_id, order_id, user_id),
+      KEY product_reviews_product_id_index (product_id),
+      KEY product_reviews_user_id_index (user_id),
+      CONSTRAINT product_reviews_product_id_fk FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+      CONSTRAINT product_reviews_order_id_fk FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+      CONSTRAINT product_reviews_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
@@ -172,6 +213,12 @@ async function initDatabase() {
     'ALTER TABLE products ADD COLUMN variant_stock JSON NULL AFTER stock'
   );
 
+  await ensureColumnExists(
+    'products',
+    'variant_prices',
+    'ALTER TABLE products ADD COLUMN variant_prices JSON NULL AFTER variant_stock'
+  );
+
   if (addedProductColors || addedVariantStock) {
     await pool.execute(`
       UPDATE products
@@ -199,6 +246,11 @@ async function initDatabase() {
     'orders',
     'idx_orders_fulfillment_status',
     'ALTER TABLE orders ADD INDEX idx_orders_fulfillment_status (fulfillment_status)'
+  );
+  await ensureIndexExists(
+    'orders',
+    'idx_orders_received_at',
+    'ALTER TABLE orders ADD INDEX idx_orders_received_at (received_at)'
   );
 }
 

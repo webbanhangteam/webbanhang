@@ -358,6 +358,12 @@ function normalizeProduct(input, current, products) {
   );
   const price = Number(input.price !== undefined ? input.price : base.price);
   const salePercent = normalizeSalePercent(input.salePercent !== undefined ? input.salePercent : base.salePercent);
+  const variantPrices = normalizeVariantPrices(
+    input.variantPrices !== undefined ? input.variantPrices : base.variantPrices,
+    colors,
+    sizes,
+    price
+  );
   const name = normalizeProductName(input.name !== undefined ? input.name : base.name);
   const productImages = normalizeProductImages(
     input.image !== undefined ? input.image : base.image,
@@ -387,6 +393,7 @@ function normalizeProduct(input, current, products) {
     colors,
     stock,
     variantStock,
+    variantPrices,
     totalStock
   };
 }
@@ -394,8 +401,8 @@ function normalizeProduct(input, current, products) {
 async function createProduct(product) {
   const [result] = await db.execute(
     `INSERT INTO products
-     (description, name, category, display_category, price, sale_percent, image, images, section, sizes, colors, stock, variant_stock, total_stock)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (description, name, category, display_category, price, sale_percent, image, images, section, sizes, colors, stock, variant_stock, variant_prices, total_stock)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     productToParams(product).slice(1)
   );
 
@@ -407,7 +414,7 @@ async function updateProduct(id, product) {
   await db.execute(
     `UPDATE products
      SET description = ?, name = ?, category = ?, display_category = ?, price = ?, sale_percent = ?, image = ?, images = ?, section = ?,
-         sizes = ?, colors = ?, stock = ?, variant_stock = ?, total_stock = ?
+         sizes = ?, colors = ?, stock = ?, variant_stock = ?, variant_prices = ?, total_stock = ?
      WHERE id = ?`,
     [...productToParams(product).slice(1), Number(id)]
   );
@@ -439,8 +446,8 @@ async function writeProducts(filePath, products) {
     const product = normalizeProduct(input, input.id ? { id: input.id } : null, products);
     await db.execute(
       `INSERT IGNORE INTO products
-       (id, description, name, category, display_category, price, sale_percent, image, images, section, sizes, colors, stock, variant_stock, total_stock)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, description, name, category, display_category, price, sale_percent, image, images, section, sizes, colors, stock, variant_stock, variant_prices, total_stock)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       productToParams(product)
     );
   }
@@ -464,6 +471,7 @@ function productToParams(product) {
     JSON.stringify(product.colors || []),
     JSON.stringify(product.stock || {}),
     JSON.stringify(product.variantStock || {}),
+    JSON.stringify(product.variantPrices || {}),
     product.totalStock === null || product.totalStock === undefined ? null : Number(product.totalStock) || 0
   ];
 }
@@ -482,6 +490,12 @@ function rowToProduct(row) {
     stock,
     row.total_stock
   );
+  const variantPrices = normalizeVariantPrices(
+    parseJson(row.variant_prices, {}),
+    colors,
+    sizes,
+    Number(row.price)
+  );
 
   return {
     id: Number(row.id),
@@ -498,6 +512,7 @@ function rowToProduct(row) {
     colors,
     stock: colors.length ? summarizeVariantStock(variantStock, sizes) : stock,
     variantStock,
+    variantPrices,
     totalStock: normalizeTotalStock(row.total_stock, sizes, colors)
   };
 }
@@ -761,6 +776,35 @@ function normalizeVariantStock(value, colors, sizes, legacyStock, totalStock) {
   }, {});
 }
 
+function normalizeVariantPrices(value, colors, sizes, basePrice) {
+  if (!colors.length && !sizes.length) return {};
+
+  const fallbackPrice = normalizeVariantPrice(basePrice, 0);
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const colorKeys = colors.length ? colors : ['__default__'];
+  const sizeKeys = sizes.length ? sizes : ['__default__'];
+
+  return colorKeys.reduce((result, color) => {
+    const colorSource = source[color] && typeof source[color] === 'object'
+      ? source[color]
+      : {};
+
+    result[color] = sizeKeys.reduce((entries, size) => {
+      entries[size] = normalizeVariantPrice(colorSource[size], fallbackPrice);
+      return entries;
+    }, {});
+    return result;
+  }, {});
+}
+
+function normalizeVariantPrice(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
+
+  const price = Number(value);
+  if (!Number.isFinite(price) || price < 0) return fallback;
+  return Math.round(price);
+}
+
 function summarizeVariantStock(variantStock, sizes) {
   if (!sizes.length) return {};
 
@@ -797,6 +841,7 @@ module.exports = {
   normalizeProductImage,
   normalizeProductImages,
   normalizeVariantStock,
+  normalizeVariantPrices,
   summarizeVariantStock,
   searchProducts,
   normalizeSearchText

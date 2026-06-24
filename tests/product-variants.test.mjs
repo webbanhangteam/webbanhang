@@ -27,4 +27,19 @@ describe('product variants', () => {
       ['S', 'M']
     )).toEqual({ S: 4, M: 6 });
   });
+
+  it('normalizes variant prices with base-price fallbacks', () => {
+    expect(productsRoute.normalizeVariantPrices(
+      {
+        White: { S: 120000, M: 125000 },
+        Black: { S: 130000 }
+      },
+      ['White', 'Black'],
+      ['S', 'M'],
+      100000
+    )).toEqual({
+      White: { S: 120000, M: 125000 },
+      Black: { S: 130000, M: 100000 }
+    });
+  });
 });

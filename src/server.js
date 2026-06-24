@@ -28,6 +28,9 @@ const adminOrderEventClients = new Set();
 const userOrderEventClients = new Set();
 const userDataFile = path.join(root, 'data', 'DATA.txt');
 const fulfillmentStatuses = ['ORDERED', 'PREPARING', 'SHIPPING', 'DELIVERED', 'CANCELLED'];
+const returnRequestTypes = ['return', 'exchange'];
+const returnRequestStatuses = ['PENDING', 'APPROVED', 'REJECTED', 'COMPLETED'];
+const returnWindowMs = 7 * 24 * 60 * 60 * 1000;
 
 const productsDataFile = path.join(root, 'data', 'products.json');
 const maxBodySize = parsePositiveNumber(process.env.MAX_BODY_SIZE, 1024 * 1024);
@@ -190,6 +193,78 @@ async function handleApi(req, res, requestUrl) {
   }
 
   if (await handleProductsRoute(req, res, routeUrl, routeContext)) {
+    return;
+  }
+
+  const productReviewsMatch = routeUrl.pathname.match(/^\/api\/products\/(\d+)\/reviews$/);
+  if (productReviewsMatch) {
+    await handleProductReviewsRoute(req, res, Number(productReviewsMatch[1]));
+    return;
+  }
+
+  const returnRequestMatch = routeUrl.pathname.match(/^\/api\/orders\/(\d+)\/return-request$/);
+  if (req.method === 'POST' && returnRequestMatch) {
+    const user = getSessionFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
+      return;
+    }
+
+    const body = await readRequestBodySafely(req, res);
+    if (!body) return;
+
+    const result = await createReturnRequest(Number(returnRequestMatch[1]), user.id, body);
+    if (!result.ok) {
+      sendJson(res, result.statusCode, { ok: false, message: result.message });
+      return;
+    }
+
+    broadcastAdminOrderEvent('order.return_requested', {
+      orderId: result.request.orderId,
+      orderDbId: result.request.orderDbId,
+      returnRequest: result.request
+    });
+    sendJson(res, 201, { ok: true, returnRequest: result.request });
+    return;
+  }
+
+  if (req.method === 'GET' && routeUrl.pathname === '/api/admin/return-requests') {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, requests: await getReturnRequests() });
+    return;
+  }
+
+  const adminReturnRequestMatch = routeUrl.pathname.match(/^\/api\/admin\/return-requests\/(\d+)$/);
+  if (req.method === 'PUT' && adminReturnRequestMatch) {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    const body = await readRequestBodySafely(req, res);
+    if (!body) return;
+
+    const result = await updateReturnRequestByAdmin(Number(adminReturnRequestMatch[1]), body);
+    if (!result.ok) {
+      sendJson(res, result.statusCode, { ok: false, message: result.message });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, returnRequest: result.request });
+    return;
+  }
+
+  if (req.method === 'GET' && routeUrl.pathname === '/api/admin/revenue-summary') {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, summary: await getRevenueSummary() });
     return;
   }
 
@@ -698,6 +773,442 @@ async function createCodOrder(req, res) {
     customer: savedOrder.user,
     message: 'Da tao don hang COD'
   });
+}
+
+async function handleProductReviewsRoute(req, res, productId) {
+  const product = (await readProducts()).find(item => Number(item.id) === Number(productId));
+  if (!product) {
+    sendJson(res, 404, { ok: false, message: 'Khong tim thay san pham' });
+    return;
+  }
+
+  if (req.method === 'GET') {
+    const user = getSessionFromRequest(req);
+    const reviewData = await getProductReviews(productId, user?.id || null);
+    sendJson(res, 200, { ok: true, ...reviewData });
+    return;
+  }
+
+  if (req.method === 'POST') {
+    const user = getSessionFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
+      return;
+    }
+
+    const body = await readRequestBodySafely(req, res);
+    if (!body) return;
+
+    const result = await createProductReview(productId, user.id, body);
+    if (!result.ok) {
+      sendJson(res, result.statusCode, { ok: false, message: result.message });
+      return;
+    }
+
+    sendJson(res, 201, { ok: true, review: result.review, summary: result.summary });
+    return;
+  }
+
+  sendJson(res, 405, { ok: false, message: 'Method not allowed' });
+}
+
+async function getProductReviews(productId, userId = null) {
+  const [reviewRows] = await db.execute(
+    `SELECT
+       pr.id,
+       pr.product_id,
+       pr.order_id,
+       pr.user_id,
+       pr.rating,
+       pr.comment,
+       pr.created_at,
+       pr.updated_at,
+       o.order_code,
+       o.customer_username,
+       o.customer_name,
+       u.username,
+       u.full_name
+     FROM product_reviews pr
+     INNER JOIN orders o ON o.id = pr.order_id
+     LEFT JOIN users u ON u.id = pr.user_id
+     WHERE pr.product_id = ?
+     ORDER BY pr.created_at DESC, pr.id DESC`,
+    [Number(productId)]
+  );
+  const reviews = reviewRows.map(rowToReview);
+  const reviewableOrders = userId
+    ? await getReviewableOrdersForProduct(productId, userId)
+    : [];
+
+  return {
+    reviews,
+    summary: summarizeReviews(reviews),
+    canReview: reviewableOrders.length > 0,
+    reviewableOrders
+  };
+}
+
+async function getReviewableOrdersForProduct(productId, userId) {
+  if (!userId) return [];
+
+  const [rows] = await db.execute(
+    `SELECT o.id, o.order_code, o.created_at, o.received_at
+     FROM orders o
+     INNER JOIN order_items oi ON oi.order_id = o.id
+     LEFT JOIN product_reviews pr
+       ON pr.product_id = oi.product_id
+      AND pr.order_id = o.id
+      AND pr.user_id = o.user_id
+     WHERE o.user_id = ?
+       AND oi.product_id = ?
+       AND o.fulfillment_status = 'DELIVERED'
+       AND pr.id IS NULL
+     GROUP BY o.id, o.order_code, o.created_at, o.received_at
+     ORDER BY o.received_at DESC, o.id DESC`,
+    [Number(userId), Number(productId)]
+  );
+
+  return rows.map((row) => ({
+    id: Number(row.id),
+    orderId: row.order_code,
+    createdAt: row.created_at,
+    receivedAt: row.received_at
+  }));
+}
+
+async function createProductReview(productId, userId, input) {
+  const rating = Number(input.rating);
+  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+    return { ok: false, statusCode: 400, message: 'Diem danh gia phai tu 1 den 5' };
+  }
+
+  const comment = String(input.comment || '').trim().slice(0, 2000);
+  const requestedOrderId = Number(input.orderId || input.order_id || 0);
+  const reviewableOrders = await getReviewableOrdersForProduct(productId, userId);
+  const order = requestedOrderId
+    ? reviewableOrders.find(item => Number(item.id) === requestedOrderId)
+    : reviewableOrders[0];
+
+  if (!order) {
+    return {
+      ok: false,
+      statusCode: 403,
+      message: 'Chi co the danh gia sau khi don hang da giao thanh cong'
+    };
+  }
+
+  try {
+    const [result] = await db.execute(
+      `INSERT INTO product_reviews (product_id, order_id, user_id, rating, comment)
+       VALUES (?, ?, ?, ?, ?)`,
+      [Number(productId), Number(order.id), Number(userId), rating, comment || null]
+    );
+    const review = await getProductReviewById(result.insertId);
+    const { summary } = await getProductReviews(productId, userId);
+    return { ok: true, review, summary };
+  } catch (err) {
+    if (err && (err.code === 'ER_DUP_ENTRY' || err.errno === 1062)) {
+      return { ok: false, statusCode: 409, message: 'Don hang nay da duoc danh gia' };
+    }
+    throw err;
+  }
+}
+
+async function getProductReviewById(id) {
+  const [rows] = await db.execute(
+    `SELECT
+       pr.id,
+       pr.product_id,
+       pr.order_id,
+       pr.user_id,
+       pr.rating,
+       pr.comment,
+       pr.created_at,
+       pr.updated_at,
+       o.order_code,
+       o.customer_username,
+       o.customer_name,
+       u.username,
+       u.full_name
+     FROM product_reviews pr
+     INNER JOIN orders o ON o.id = pr.order_id
+     LEFT JOIN users u ON u.id = pr.user_id
+     WHERE pr.id = ?
+     LIMIT 1`,
+    [Number(id)]
+  );
+  return rowToReview(rows[0]);
+}
+
+function rowToReview(row) {
+  if (!row) return null;
+
+  const authorName = row.full_name || row.customer_name || row.username || row.customer_username || 'Khach hang';
+  return {
+    id: Number(row.id),
+    productId: Number(row.product_id),
+    orderDbId: Number(row.order_id),
+    orderId: row.order_code,
+    userId: row.user_id === null ? null : Number(row.user_id),
+    rating: Number(row.rating),
+    comment: row.comment || '',
+    authorName,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function summarizeReviews(reviews) {
+  const count = reviews.length;
+  const total = reviews.reduce((sum, review) => sum + (Number(review.rating) || 0), 0);
+  const average = count ? Number((total / count).toFixed(1)) : 0;
+
+  return { count, average };
+}
+
+async function createReturnRequest(orderDbId, userId, input) {
+  const requestType = normalizeReturnRequestType(input.type || input.requestType);
+  if (!requestType) {
+    return { ok: false, statusCode: 400, message: 'Loai yeu cau khong hop le' };
+  }
+
+  const reason = String(input.reason || '').trim().slice(0, 2000);
+  if (!reason) {
+    return { ok: false, statusCode: 400, message: 'Vui long nhap ly do doi/tra hang' };
+  }
+
+  const connection = await db.getConnection();
+  let requestId = null;
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      `SELECT
+         o.id,
+         o.order_code,
+         o.user_id,
+         o.fulfillment_status,
+         o.received_at,
+         rr.id AS return_request_id
+       FROM orders o
+       LEFT JOIN return_requests rr ON rr.order_id = o.id
+       WHERE o.id = ?
+       FOR UPDATE`,
+      [Number(orderDbId)]
+    );
+
+    if (!rows.length || Number(rows[0].user_id) !== Number(userId)) {
+      await connection.rollback();
+      return { ok: false, statusCode: 404, message: 'Khong tim thay don hang' };
+    }
+
+    if (rows[0].return_request_id) {
+      await connection.rollback();
+      return { ok: false, statusCode: 409, message: 'Don hang nay da co yeu cau doi/tra' };
+    }
+
+    const fulfillmentStatus = normalizeFulfillmentStatus(rows[0].fulfillment_status) || 'ORDERED';
+    if (fulfillmentStatus !== 'DELIVERED' || !rows[0].received_at) {
+      await connection.rollback();
+      return { ok: false, statusCode: 409, message: 'Chi co the doi/tra sau khi giao hang thanh cong' };
+    }
+
+    if (!isWithinReturnWindow(rows[0].received_at)) {
+      await connection.rollback();
+      return { ok: false, statusCode: 409, message: 'Da qua thoi han doi/tra 7 ngay' };
+    }
+
+    const [result] = await connection.execute(
+      `INSERT INTO return_requests (order_id, user_id, request_type, reason, status)
+       VALUES (?, ?, ?, ?, 'PENDING')`,
+      [Number(orderDbId), Number(userId), requestType, reason]
+    );
+    requestId = Number(result.insertId);
+    await connection.commit();
+  } catch (err) {
+    await connection.rollback();
+    if (err && (err.code === 'ER_DUP_ENTRY' || err.errno === 1062)) {
+      return { ok: false, statusCode: 409, message: 'Don hang nay da co yeu cau doi/tra' };
+    }
+    throw err;
+  } finally {
+    connection.release();
+  }
+
+  return { ok: true, request: await getReturnRequestById(requestId) };
+}
+
+async function getReturnRequests() {
+  const [rows] = await db.execute(
+    `SELECT
+       rr.id,
+       rr.order_id,
+       rr.user_id,
+       rr.request_type,
+       rr.reason,
+       rr.status,
+       rr.admin_note,
+       rr.created_at,
+       rr.updated_at,
+       o.order_code,
+       o.amount,
+       o.customer_username,
+       o.customer_name,
+       o.customer_phone,
+       o.customer_address,
+       o.received_at,
+       o.created_at AS order_created_at
+     FROM return_requests rr
+     INNER JOIN orders o ON o.id = rr.order_id
+     ORDER BY rr.created_at DESC, rr.id DESC`
+  );
+  return rows.map(rowToReturnRequest);
+}
+
+async function getReturnRequestById(id) {
+  const [rows] = await db.execute(
+    `SELECT
+       rr.id,
+       rr.order_id,
+       rr.user_id,
+       rr.request_type,
+       rr.reason,
+       rr.status,
+       rr.admin_note,
+       rr.created_at,
+       rr.updated_at,
+       o.order_code,
+       o.amount,
+       o.customer_username,
+       o.customer_name,
+       o.customer_phone,
+       o.customer_address,
+       o.received_at,
+       o.created_at AS order_created_at
+     FROM return_requests rr
+     INNER JOIN orders o ON o.id = rr.order_id
+     WHERE rr.id = ?
+     LIMIT 1`,
+    [Number(id)]
+  );
+  return rowToReturnRequest(rows[0]);
+}
+
+async function updateReturnRequestByAdmin(id, input) {
+  const status = normalizeReturnRequestStatus(input.status);
+  if (!status) {
+    return { ok: false, statusCode: 400, message: 'Trang thai yeu cau khong hop le' };
+  }
+
+  const adminNote = String(input.adminNote || input.admin_note || '').trim().slice(0, 2000);
+  const [result] = await db.execute(
+    `UPDATE return_requests
+     SET status = ?, admin_note = ?
+     WHERE id = ?`,
+    [status, adminNote || null, Number(id)]
+  );
+
+  if (!result.affectedRows) {
+    return { ok: false, statusCode: 404, message: 'Khong tim thay yeu cau doi/tra' };
+  }
+
+  return { ok: true, request: await getReturnRequestById(id) };
+}
+
+function rowToReturnRequest(row) {
+  if (!row) return null;
+
+  return {
+    id: Number(row.id),
+    orderDbId: Number(row.order_id),
+    orderId: row.order_code,
+    userId: row.user_id === null ? null : Number(row.user_id),
+    type: row.request_type,
+    reason: row.reason || '',
+    status: normalizeReturnRequestStatus(row.status) || 'PENDING',
+    adminNote: row.admin_note || '',
+    amount: Number(row.amount) || 0,
+    customer: {
+      username: row.customer_username || '',
+      fullName: row.customer_name || '',
+      phone: row.customer_phone || '',
+      address: row.customer_address || ''
+    },
+    orderCreatedAt: row.order_created_at,
+    receivedAt: row.received_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function normalizeReturnRequestType(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return returnRequestTypes.includes(normalized) ? normalized : null;
+}
+
+function normalizeReturnRequestStatus(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return returnRequestStatuses.includes(normalized) ? normalized : null;
+}
+
+function isWithinReturnWindow(receivedAt) {
+  const receivedTime = new Date(receivedAt).getTime();
+  return Number.isFinite(receivedTime) && Date.now() - receivedTime <= returnWindowMs;
+}
+
+function getReturnWindowEndsAt(receivedAt) {
+  if (!receivedAt) return null;
+  const receivedTime = new Date(receivedAt || 0).getTime();
+  if (!Number.isFinite(receivedTime)) return null;
+  return new Date(receivedTime + returnWindowMs).toISOString();
+}
+
+async function getRevenueSummary() {
+  const [totals] = await db.execute(
+    `SELECT
+       COUNT(*) AS order_count,
+       COALESCE(SUM(amount), 0) AS revenue
+     FROM orders
+     WHERE fulfillment_status <> 'CANCELLED'
+       AND status IN ('PAID', 'COD_PENDING')`
+  );
+
+  return {
+    totals: {
+      orderCount: Number(totals[0]?.order_count) || 0,
+      revenue: Number(totals[0]?.revenue) || 0
+    },
+    daily: await getRevenueSummaryByPeriod('day'),
+    monthly: await getRevenueSummaryByPeriod('month'),
+    yearly: await getRevenueSummaryByPeriod('year')
+  };
+}
+
+async function getRevenueSummaryByPeriod(period) {
+  const groupExpr = {
+    day: 'DATE_FORMAT(created_at, \'%Y-%m-%d\')',
+    month: 'DATE_FORMAT(created_at, \'%Y-%m\')',
+    year: 'YEAR(created_at)'
+  }[period];
+  const limitClause = period === 'day' ? 'LIMIT 30' : period === 'month' ? 'LIMIT 12' : 'LIMIT 10';
+
+  const [rows] = await db.execute(
+    `SELECT
+       ${groupExpr} AS period_key,
+       COUNT(*) AS order_count,
+       COALESCE(SUM(amount), 0) AS revenue
+     FROM orders
+     WHERE fulfillment_status <> 'CANCELLED'
+       AND status IN ('PAID', 'COD_PENDING')
+     GROUP BY period_key
+     ORDER BY period_key DESC
+     ${limitClause}`
+  );
+
+  return rows.map((row) => ({
+    period: String(row.period_key),
+    orderCount: Number(row.order_count) || 0,
+    revenue: Number(row.revenue) || 0
+  })).reverse();
 }
 
 function serveStatic(pathname, req, res) {
@@ -1301,7 +1812,7 @@ async function createOrderFromCart(items) {
       }
     }
 
-    const unitPrice = getProductSalePrice(product);
+    const unitPrice = getProductVariantSalePrice(product, color, size);
     if (!normalizeAmount(unitPrice)) {
       return {
         ok: false,
@@ -1399,7 +1910,34 @@ function getProductTotalStock(product) {
 }
 
 function getProductSalePrice(product) {
-  const price = Number(product.price) || 0;
+  const price = getProductVariantBasePrice(product, '', '');
+  const rawSalePercent = Number(product.salePercent) || 0;
+  const salePercent = Math.min(95, Math.max(0, Math.trunc(rawSalePercent)));
+  if (!salePercent) return price;
+  return Math.max(0, Math.round(price * (100 - salePercent) / 100));
+}
+
+function getProductVariantBasePrice(product, color, size) {
+  const basePrice = Math.max(0, Math.round(Number(product?.price) || 0));
+  const variantPrices = product?.variantPrices;
+  if (!variantPrices || typeof variantPrices !== 'object' || Array.isArray(variantPrices)) {
+    return basePrice;
+  }
+
+  const colors = getProductColors(product);
+  const sizes = getProductSizes(product);
+  if (!colors.length && !sizes.length) return basePrice;
+
+  const colorKey = colors.length ? String(color || '').trim() : '__default__';
+  const sizeKey = sizes.length ? String(size || '').trim() : '__default__';
+  const variantPrice = variantPrices?.[colorKey]?.[sizeKey];
+  const price = Number(variantPrice);
+
+  return Number.isFinite(price) && price >= 0 ? Math.round(price) : basePrice;
+}
+
+function getProductVariantSalePrice(product, color, size) {
+  const price = getProductVariantBasePrice(product, color, size);
   const rawSalePercent = Number(product.salePercent) || 0;
   const salePercent = Math.min(95, Math.max(0, Math.trunc(rawSalePercent)));
   if (!salePercent) return price;
@@ -2029,6 +2567,13 @@ async function fetchOrders(whereClause, params) {
        o.gateway_payload,
        o.created_at,
        o.updated_at,
+       rr.id AS return_request_id,
+       rr.request_type AS return_request_type,
+       rr.reason AS return_request_reason,
+       rr.status AS return_request_status,
+       rr.admin_note AS return_request_admin_note,
+       rr.created_at AS return_request_created_at,
+       rr.updated_at AS return_request_updated_at,
        oi.id AS item_id,
        oi.product_id,
        oi.product_name,
@@ -2038,6 +2583,7 @@ async function fetchOrders(whereClause, params) {
        oi.unit_price,
        oi.line_total
      FROM orders o
+     LEFT JOIN return_requests rr ON rr.order_id = o.id
      LEFT JOIN order_items oi ON oi.order_id = o.id
      ${whereClause}
      ORDER BY o.created_at DESC, o.id DESC, oi.id ASC`,
@@ -2059,6 +2605,19 @@ async function fetchOrders(whereClause, params) {
         adminSeenAt: row.admin_seen_at,
         fulfillmentStatus: normalizeFulfillmentStatus(row.fulfillment_status) || 'ORDERED',
         receivedAt: row.received_at,
+        returnEligibleUntil: getReturnWindowEndsAt(row.received_at),
+        canRequestReturn: normalizeFulfillmentStatus(row.fulfillment_status) === 'DELIVERED' &&
+          !row.return_request_id &&
+          isWithinReturnWindow(row.received_at),
+        returnRequest: row.return_request_id ? {
+          id: Number(row.return_request_id),
+          type: row.return_request_type,
+          reason: row.return_request_reason || '',
+          status: normalizeReturnRequestStatus(row.return_request_status) || 'PENDING',
+          adminNote: row.return_request_admin_note || '',
+          createdAt: row.return_request_created_at,
+          updatedAt: row.return_request_updated_at
+        } : null,
         amount: Number(row.amount),
         description: row.description || '',
         customer: {
