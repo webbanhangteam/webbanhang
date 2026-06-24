@@ -54,6 +54,7 @@ async function initDatabase() {
       section VARCHAR(40) NOT NULL DEFAULT 'products',
       sizes JSON NOT NULL,
       colors JSON NULL,
+      description TEXT NULL,
       stock JSON NOT NULL,
       variant_stock JSON NULL,
       total_stock INT UNSIGNED NULL,

@@ -377,6 +377,7 @@ function normalizeProduct(input, current, products) {
     name,
     category,
     displayCategory: normalizeDisplayCategory(input.displayCategory || base.displayCategory, category),
+    description: input.description || base.description,
     price,
     salePercent,
     image: productImages.image,
@@ -393,24 +394,26 @@ function normalizeProduct(input, current, products) {
 async function createProduct(product) {
   const [result] = await db.execute(
     `INSERT INTO products
-     (name, category, display_category, price, sale_percent, image, images, section, sizes, colors, stock, variant_stock, total_stock)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (description, name, category, display_category, price, sale_percent, image, images, section, sizes, colors, stock, variant_stock, total_stock)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     productToParams(product).slice(1)
   );
 
   return getProductById(result.insertId);
+
 }
 
 async function updateProduct(id, product) {
   await db.execute(
     `UPDATE products
-     SET name = ?, category = ?, display_category = ?, price = ?, sale_percent = ?, image = ?, images = ?, section = ?,
+     SET description = ?, name = ?, category = ?, display_category = ?, price = ?, sale_percent = ?, image = ?, images = ?, section = ?,
          sizes = ?, colors = ?, stock = ?, variant_stock = ?, total_stock = ?
      WHERE id = ?`,
     [...productToParams(product).slice(1), Number(id)]
   );
 
   return getProductById(id);
+
 }
 
 async function getProductById(id) {
@@ -436,8 +439,8 @@ async function writeProducts(filePath, products) {
     const product = normalizeProduct(input, input.id ? { id: input.id } : null, products);
     await db.execute(
       `INSERT IGNORE INTO products
-       (id, name, category, display_category, price, sale_percent, image, images, section, sizes, colors, stock, variant_stock, total_stock)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, description, name, category, display_category, price, sale_percent, image, images, section, sizes, colors, stock, variant_stock, total_stock)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       productToParams(product)
     );
   }
@@ -448,6 +451,7 @@ async function writeProducts(filePath, products) {
 function productToParams(product) {
   return [
     Number(product.id) || null,
+    product.description || null,
     product.name,
     product.category,
     product.displayCategory,
@@ -481,6 +485,7 @@ function rowToProduct(row) {
 
   return {
     id: Number(row.id),
+    description: row.description || '',
     name: normalizeProductName(row.name),
     category: row.category,
     displayCategory: normalizeDisplayCategory(row.display_category, row.category),

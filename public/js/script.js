@@ -2498,6 +2498,7 @@ async function submitAdminProduct(event) {
     const stockInput = document.getElementById('adminStock').value;
     const images = splitImageList(document.getElementById('adminImage').value);
     const payload = {
+        description: document.getElementById('adminDescription').value,
         name: document.getElementById('adminName').value,
         category,
         displayCategory: displayCategoryFromType(category),
@@ -2512,7 +2513,7 @@ async function submitAdminProduct(event) {
         totalStock: sizes.length || colors.length ? null : parseTotalStock(stockInput),
         section: document.getElementById('adminSection').value
     };
-
+console.log('Submitting product payload:', payload);
     const url = id ? `/api/products/${id}` : '/api/products';
     const method = id ? 'PUT' : 'POST';
     adminMessage.textContent = contentText('messages.admin.saving', 'Đang lưu...');
@@ -2576,6 +2577,7 @@ function fillAdminForm(productId) {
     if (!product) return;
 
     document.getElementById('adminProductId').value = product.id;
+    document.getElementById('adminDescription').value = product.description || '';
     document.getElementById('adminName').value = product.name;
     document.getElementById('adminCategory').value = product.category;
     document.getElementById('adminPrice').value = product.price;
