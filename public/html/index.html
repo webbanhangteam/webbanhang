@@ -392,8 +392,18 @@
                                 </label>
                                 <label class="full-width">
                                     Địa chỉ giao hàng
-                                    <input id="profileAddress" type="text" autocomplete="street-address"
-                                        placeholder="Số nhà, đường, phường, quận">
+                                    <div class="address-row">
+                                        <select id="province">
+                                            <option value="">Tỉnh / Thành phố</option>
+                                        </select>
+
+                                        <select id="ward">
+                                            <option value="">Phường / Xã</option>
+                                        </select>
+
+                                        <input id="streetAddress" type="text" autocomplete="street-address"
+                                            placeholder="Số nhà, tên đường...">
+                                    </div>
                                 </label>
                             </div>
                             <button class="profile-save-btn" type="submit">Lưu thông tin</button>

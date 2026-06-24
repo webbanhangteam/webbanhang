@@ -3092,3 +3092,49 @@ a {
         justify-self: stretch;
     }
 }
+
+.address-row{
+    display:flex;
+    gap:12px;
+    width:100%;
+    max-width:100%;
+}
+
+#province,
+#ward,
+#streetAddress{
+    min-width:0;
+    height:54px;
+    border:1px solid #ddd;
+    border-radius:10px;
+    padding:0 16px;
+    font-size:15px;
+    outline:none;
+}
+
+#province,
+#ward{
+    flex:1 1 0;
+}
+
+#streetAddress{
+    flex:2 1 0;
+}
+
+#province:focus,
+#ward:focus,
+#streetAddress:focus{
+    border-color:#111;
+}
+
+@media (max-width: 760px) {
+    .address-row{
+        flex-direction:column;
+    }
+
+    #province,
+    #ward,
+    #streetAddress{
+        width:100%;
+    }
+}

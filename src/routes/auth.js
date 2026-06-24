@@ -355,6 +355,17 @@ function toPublicUser(user) {
   };
 }
 
+function normalizeAddressInput(input = {}) {
+  const directAddress = normalizeProfileField(input.address);
+  if (directAddress) return directAddress;
+
+  const streetAddress = normalizeProfileField(input.streetAddress);
+  const commune = normalizeProfileField(input.commune || input.ward);
+  const province = normalizeProfileField(input.province);
+
+  return [streetAddress, commune, province].filter(Boolean).join(', ');
+}
+
 async function getUserByUsername(username) {
   const normalizedUsername = normalizeUsername(username);
   if (!normalizedUsername) return null;
@@ -377,7 +388,7 @@ async function updateUserProfile(username, input) {
 
   const fullName = normalizeProfileField(input.fullName || input.name);
   const phone = normalizeProfileField(input.phone);
-  const address = normalizeProfileField(input.address);
+  const address = normalizeAddressInput(input);
 
   await db.execute(
     'UPDATE users SET full_name = ?, phone = ?, address = ? WHERE id = ?',

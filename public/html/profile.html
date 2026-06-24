@@ -68,8 +68,24 @@
                             <div class="profile-form-grid">
                                 <label>Họ tên<input id="profileFullName" type="text" autocomplete="name"></label>
                                 <label>Số điện thoại<input id="profilePhone" type="tel" autocomplete="tel"></label>
-                                <label class="full-width">Địa chỉ giao hàng<input id="profileAddress" type="text"
-                                        autocomplete="street-address"></label>
+                                <label class="form-label">Địa chỉ giao hàng
+
+<div class="address-row">
+    <select id="province">
+        <option value="">Tỉnh / Thành phố</option>
+    </select>
+
+    <select id="ward">
+        <option value="">Phường / Xã</option>
+    </select>
+
+    <input
+        type="text"
+        id="streetAddress"
+        placeholder="Số nhà, tên đường..."
+    >
+</div>
+</label>
                             </div>
                             <button class="profile-save-btn" type="submit">Lưu thông tin</button>
                             <p id="profileMessage" class="checkout-message"></p>

@@ -85,7 +85,9 @@ const accountStatus = document.getElementById('accountStatus');
 const profileForm = document.getElementById('profileForm');
 const profileFullName = document.getElementById('profileFullName');
 const profilePhone = document.getElementById('profilePhone');
-const profileAddress = document.getElementById('profileAddress');
+const profileProvince = document.getElementById('province');
+const profileWard = document.getElementById('ward');
+const profileStreetAddress = document.getElementById('streetAddress');
 const profileMessage = document.getElementById('profileMessage');
 const orderHistoryPanel = document.getElementById('orderHistoryPanel');
 const orderHistoryList = document.getElementById('orderHistoryList');
@@ -1658,7 +1660,7 @@ function updateAccountUi() {
     if (profileForm) profileForm.hidden = false;
     if (profileFullName) profileFullName.value = currentUser.fullName || '';
     if (profilePhone) profilePhone.value = currentUser.phone || '';
-    if (profileAddress) profileAddress.value = currentUser.address || '';
+    fillProfileAddressFields(currentUser.address || '');
     updateProfileSummary();
     switchProfileTab('info');
     if (orderHistoryPanel) orderHistoryPanel.hidden = false;
@@ -2459,7 +2461,7 @@ async function submitProfile(event) {
             body: JSON.stringify({
                 fullName: profileFullName.value,
                 phone: profilePhone.value,
-                address: profileAddress.value
+                ...getProfileAddressPayload()
             })
         });
         const data = await response.json();
@@ -2990,4 +2992,150 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
     return escapeHtml(value);
+}
+
+function getSelectedOptionText(select) {
+    if (!select || !select.value) return '';
+    return select.selectedOptions?.[0]?.textContent?.trim() || '';
+}
+
+function getProfileAddressPayload() {
+    const province = getSelectedOptionText(profileProvince);
+    const commune = getSelectedOptionText(profileWard);
+    const streetAddress = profileStreetAddress?.value?.trim() || '';
+    const address = [streetAddress, commune, province].filter(Boolean).join(', ');
+
+    return {
+        address,
+        province,
+        commune,
+        streetAddress
+    };
+}
+
+function parseProfileAddress(address = '') {
+    const parts = String(address).split(',').map((part) => part.trim()).filter(Boolean);
+
+    if (parts.length < 3) {
+        return {
+            streetAddress: String(address || '').trim(),
+            commune: '',
+            province: ''
+        };
+    }
+
+    return {
+        streetAddress: parts.slice(0, -2).join(', '),
+        commune: parts[parts.length - 2],
+        province: parts[parts.length - 1]
+    };
+}
+
+function selectOptionByText(select, text) {
+    if (!select || !text) return false;
+
+    const normalizedText = String(text).trim().toLowerCase();
+    const option = Array.from(select.options).find((entry) =>
+        entry.textContent.trim().toLowerCase() === normalizedText
+    );
+
+    if (!option) return false;
+
+    select.value = option.value;
+    return true;
+}
+
+function fillProfileAddressFields(address = '') {
+    if (!profileStreetAddress) return;
+
+    const parsedAddress = parseProfileAddress(address);
+    profileStreetAddress.value = parsedAddress.streetAddress;
+
+    if (!addressProvinceData.length || !profileProvince || !profileWard) return;
+
+    if (selectOptionByText(profileProvince, parsedAddress.province)) {
+        populateWardOptions(profileProvince.value);
+        selectOptionByText(profileWard, parsedAddress.commune);
+    }
+}
+
+
+const provinceSelect = document.getElementById("province");
+const wardSelect = document.getElementById("ward");
+let addressProvinceData = [];
+
+function populateWardOptions(provinceCode) {
+    if (!wardSelect) return;
+
+    const province =
+        addressProvinceData.find(p => p.code === Number(provinceCode));
+
+    wardSelect.innerHTML =
+        '<option value="">Chọn phường/xã</option>';
+
+    if (!province) return;
+
+    province.districts.forEach(district => {
+
+        district.wards.forEach(ward => {
+
+            wardSelect.innerHTML += `
+                        <option value="${ward.name}">
+                            ${ward.name}
+                        </option>
+                    `;
+
+        });
+
+    });
+}
+
+if (provinceSelect && wardSelect) {
+    fetch("https://provinces.open-api.vn/api/v1/?depth=3")
+        .then(res => res.json())
+        .then(data => {
+            addressProvinceData = data;
+
+            data.forEach(province => {
+                provinceSelect.innerHTML += `
+                <option value="${province.code}">
+                    ${province.name}
+                </option>
+            `;
+            });
+
+            provinceSelect.addEventListener("change", () => {
+
+                const province =
+                    data.find(p => p.code === Number(provinceSelect.value));
+
+                wardSelect.innerHTML =
+                    '<option value="">Chọn phường/xã</option>';
+
+                if (!province) return;
+
+                province.districts.forEach(district => {
+
+                    district.wards.forEach(ward => {
+
+                        wardSelect.innerHTML += `
+                        <option value="${ward.name}">
+                            ${ward.name}
+                        </option>
+                    `;
+
+                    });
+
+                });
+
+            });
+
+            fillProfileAddressFields(currentUser?.address || '');
+
+        });
+}
+
+
+function getFullAddress() {
+    return getProfileAddressPayload().address;
 }
