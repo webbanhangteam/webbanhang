@@ -1,6 +1,5 @@
 require('dotenv').config();
 const http = require('http');
-const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -77,26 +76,23 @@ const securityHeaders = {
   'X-Frame-Options': 'DENY',
   'X-XSS-Protection': '1; mode=block',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Content-Security-Policy': 'default-src \'self\'; script-src \'self\' \'unsafe-inline\' https://cdn.jsdelivr.net; style-src \'self\' \'unsafe-inline\' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src \'self\' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src \'self\' https://images.unsplash.com data:; connect-src \'self\' https://provinces.open-api.vn'
+  'Content-Security-Policy': 'default-src \'self\'; script-src \'self\' \'unsafe-inline\' https://cdn.jsdelivr.net; style-src \'self\' \'unsafe-inline\' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src \'self\' https://fonts.gstatic.com https://cdn.jsdelivr.net; img-src \'self\' https://images.unsplash.com https://img.vietqr.io data:; connect-src \'self\' https://provinces.open-api.vn'
 };
 
-const momoConfig = {
-  partnerCode: process.env.MOMO_PARTNER_CODE || process.env.PARTNER_CODE || '',
-  accessKey: process.env.MOMO_ACCESS_KEY || process.env.ACCESS_KEY || '',
-  secretKey: process.env.MOMO_SECRET_KEY || process.env.SECRET_KEY || '',
-  endpoint: process.env.MOMO_ENDPOINT || 'https://test-payment.momo.vn/v2/gateway/api/create',
-  returnUrl: process.env.MOMO_RETURN_URL || `${publicBaseUrl}/api/payments/momo/return`,
-  ipnUrl: process.env.MOMO_IPN_URL || `${publicBaseUrl}/api/payments/momo/ipn`
+const vietQrConfig = {
+  bankId: String(process.env.VIETQR_BANK_ID || process.env.VIETQR_ACQ_ID || process.env.BANK_ID || '').trim(),
+  accountNo: String(process.env.VIETQR_ACCOUNT_NO || process.env.BANK_ACCOUNT_NO || '').trim(),
+  accountName: String(process.env.VIETQR_ACCOUNT_NAME || process.env.BANK_ACCOUNT_NAME || '').trim(),
+  template: String(process.env.VIETQR_TEMPLATE || 'compact2').trim()
 };
-
-const zalopayConfig = {
-  appId: process.env.ZALOPAY_APP_ID || process.env.APP_ID || '2554',
-  key1: (process.env.ZALOPAY_KEY1 || process.env.KEY1 || '').trim(),
-  key2: (process.env.ZALOPAY_KEY2 || process.env.KEY2 || '').trim(),
-  createUrl: process.env.ZALOPAY_CREATE_URL || process.env.CREATE_URL || 'https://sb-openapi.zalopay.vn/v2/create',
-  queryUrl: process.env.ZALOPAY_QUERY_URL || 'https://sb-openapi.zalopay.vn/v2/query',
-  callbackUrl: process.env.ZALOPAY_CALLBACK_URL || `${publicBaseUrl}/api/payments/zalopay/callback`,
-  returnUrl: process.env.ZALOPAY_RETURN_URL || `${publicBaseUrl}/api/payments/zalopay/return`
+const bankTransferWebhookConfig = {
+  secret: String(
+    process.env.BANK_TRANSFER_WEBHOOK_SECRET ||
+    process.env.BANK_WEBHOOK_SECRET ||
+    process.env.CASSO_WEBHOOK_SECRET ||
+    ''
+  ).trim(),
+  amountTolerance: parseNonNegativeInteger(process.env.BANK_TRANSFER_AMOUNT_TOLERANCE) || 0
 };
 
 const server = http.createServer(async (req, res) => {
@@ -268,38 +264,34 @@ async function handleApi(req, res, requestUrl) {
     return;
   }
 
-  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/momo') {
-    await createMomoPayment(req, res);
+  if (req.method === 'GET' && routeUrl.pathname === '/api/notifications/me') {
+    const user = getSessionFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, notifications: await getUserNotifications(user.id) });
     return;
   }
 
-  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/momo/ipn') {
-    await handleMomoIpn(req, res);
+  if (req.method === 'GET' && routeUrl.pathname === '/api/admin/notifications') {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, notifications: await getAdminNotifications() });
     return;
   }
 
-  if (req.method === 'GET' && routeUrl.pathname === '/api/payments/momo/return') {
-    sendPaymentReturn(res, 'MoMo', Object.fromEntries(requestUrl.searchParams.entries()));
+  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/vietqr') {
+    await createVietQrPayment(req, res);
     return;
   }
 
-  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/zalopay') {
-    await createZaloPayPayment(req, res);
-    return;
-  }
-
-  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/zalopay/callback') {
-    await handleZaloPayCallback(req, res);
-    return;
-  }
-
-  if (req.method === 'GET' && routeUrl.pathname === '/api/payments/zalopay/return') {
-    sendPaymentReturn(res, 'ZaloPay', Object.fromEntries(requestUrl.searchParams.entries()));
-    return;
-  }
-
-  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/zalopay/status') {
-    await queryZaloPayStatus(req, res);
+  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/bank-transfer-webhook') {
+    await handleBankTransferWebhook(req, res, routeUrl);
     return;
   }
 
@@ -364,6 +356,25 @@ async function handleApi(req, res, requestUrl) {
       orderDbId: order.id
     });
     sendJson(res, 200, { ok: true, order });
+    return;
+  }
+
+  const vietQrTransferMatch = routeUrl.pathname.match(/^\/api\/orders\/(\d+)\/vietqr-transfer$/);
+  if (req.method === 'POST' && vietQrTransferMatch) {
+    const user = getSessionFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
+      return;
+    }
+
+    const result = await markVietQrTransferConfirmed(Number(vietQrTransferMatch[1]), user.id);
+    if (!result.ok) {
+      sendJson(res, result.statusCode, { ok: false, message: result.message });
+      return;
+    }
+
+    notifyOrderPaymentStatusChanged(result.order, req.requestId, 'customer');
+    sendJson(res, 200, { ok: true, order: result.order });
     return;
   }
 
@@ -465,10 +476,10 @@ function normalizeApiPath(pathname) {
   return pathname;
 }
 
-async function createMomoPayment(req, res) {
+async function createVietQrPayment(req, res) {
   const sessionUser = getSessionFromRequest(req);
   if (!sessionUser) {
-    sendJson(res, 401, { ok: false, message: 'Vui long dang nhap truoc khi thanh toan' });
+    sendJson(res, 401, { ok: false, message: 'Vui long dang nhap truoc khi thanh toan VietQR' });
     return;
   }
 
@@ -478,240 +489,114 @@ async function createMomoPayment(req, res) {
     return;
   }
 
+  if (!hasDeliveryProfile(user)) {
+    sendJson(res, 400, { ok: false, message: 'Vui long cap nhat ten, so dien thoai va dia chi giao hang' });
+    return;
+  }
+
+  const missing = ['bankId', 'accountNo', 'accountName'].filter(key => !vietQrConfig[key]);
+  if (missing.length) {
+    sendJson(res, 500, { ok: false, message: `Thieu cau hinh VietQR: ${missing.join(', ')}` });
+    return;
+  }
+
   const body = await readRequestBodySafely(req, res);
   if (!body) return;
 
   const order = await createOrderFromCart(body.items);
-
   if (!order.ok) {
     sendJson(res, 400, { ok: false, message: order.message });
     return;
   }
 
-  const missing = ['partnerCode', 'accessKey', 'secretKey'].filter(key => !momoConfig[key]);
-  if (missing.length) {
-    sendJson(res, 500, { ok: false, message: `Thieu cau hinh MoMo: ${missing.join(', ')}` });
-    return;
-  }
-
-  const requestId = `${momoConfig.partnerCode}${Date.now()}`;
-  const orderId = requestId;
-  const amount = order.amount;
-  const orderInfo = body.orderInfo || 'Thanh toan don hang UrbanCart';
-  const extraData = body.extraData || '';
-  const requestType = 'captureWallet';
-  const rawSignature =
-    `accessKey=${momoConfig.accessKey}` +
-    `&amount=${amount}` +
-    `&extraData=${extraData}` +
-    `&ipnUrl=${momoConfig.ipnUrl}` +
-    `&orderId=${orderId}` +
-    `&orderInfo=${orderInfo}` +
-    `&partnerCode=${momoConfig.partnerCode}` +
-    `&redirectUrl=${momoConfig.returnUrl}` +
-    `&requestId=${requestId}` +
-    `&requestType=${requestType}`;
-
-  const payload = {
-    partnerCode: momoConfig.partnerCode,
-    accessKey: momoConfig.accessKey,
-    requestId,
-    amount: String(amount),
-    orderId,
-    orderInfo,
-    redirectUrl: momoConfig.returnUrl,
-    ipnUrl: momoConfig.ipnUrl,
-    extraData,
-    requestType,
-    signature: hmacSha256(momoConfig.secretKey, rawSignature),
-    lang: 'vi'
-  };
-
-  await createLocalOrder('momo', orderId, order, orderInfo, toOrderCustomer(user), {
-    status: 'CREATED',
-    requestId: req.requestId
-  });
+  const orderId = `VQR${Date.now()}${crypto.randomBytes(3).toString('hex')}`;
+  const description = body.description || 'Thanh toan VietQR';
+  let savedOrder;
 
   try {
-    const momoResponse = await postJson(momoConfig.endpoint, payload);
-    const status = momoResponse.resultCode === 0 || momoResponse.payUrl ? 'PENDING' : 'FAILED';
-    await updateOrderGatewayResponse(orderId, status, momoResponse);
-    sendJson(res, 200, { ok: true, provider: 'momo', orderId, paymentUrl: momoResponse.payUrl, momo: momoResponse });
+    savedOrder = await createLocalOrder('vietqr', orderId, order, description, toOrderCustomer(user), {
+      status: 'VIETQR_PENDING',
+      applyStock: true,
+      requestId: req.requestId
+    });
   } catch (err) {
-    await updateOrderGatewayResponse(orderId, 'FAILED', { error: err.message });
-    logger.error('payment.gateway_request_failed', {
+    logger.warn('order.create_failed', {
       requestId: req.requestId,
-      provider: 'momo',
+      provider: 'vietqr',
       orderId,
-      error: err
+      userId: user.id || null,
+      error: err.message
     });
-    sendJson(res, 502, { ok: false, message: 'Khong tao duoc thanh toan MoMo', error: err.message });
+    sendJson(res, 400, { ok: false, message: err.message || 'Khong tao duoc don VietQR' });
+    return;
   }
+
+  const transferContent = normalizeTransferContent(orderId);
+  sendJson(res, 201, {
+    ok: true,
+    provider: 'vietqr',
+    orderId,
+    amount: order.amount,
+    items: order.items,
+    products: await readProducts(),
+    customer: savedOrder.user,
+    orderDbId: savedOrder.id,
+    transferContent,
+    qrImageUrl: buildVietQrImageUrl(order.amount, transferContent),
+    bank: {
+      bankId: vietQrConfig.bankId,
+      accountNo: vietQrConfig.accountNo,
+      accountName: vietQrConfig.accountName
+    },
+    message: 'Da tao don hang VietQR'
+  });
 }
 
-async function handleMomoIpn(req, res) {
+async function handleBankTransferWebhook(req, res, routeUrl) {
   const body = await readRequestBodySafely(req, res);
   if (!body) return;
 
-  const rawSignature =
-    `accessKey=${body.accessKey || momoConfig.accessKey}` +
-    `&amount=${body.amount || ''}` +
-    `&extraData=${body.extraData || ''}` +
-    `&message=${body.message || ''}` +
-    `&orderId=${body.orderId || ''}` +
-    `&orderInfo=${body.orderInfo || ''}` +
-    `&orderType=${body.orderType || ''}` +
-    `&partnerCode=${body.partnerCode || ''}` +
-    `&payType=${body.payType || ''}` +
-    `&requestId=${body.requestId || ''}` +
-    `&responseTime=${body.responseTime || ''}` +
-    `&resultCode=${body.resultCode || ''}`;
-
-  if (hmacSha256(momoConfig.secretKey, rawSignature) !== (body.signature || '')) {
-    sendJson(res, 400, { status: 'invalid signature' });
+  if (!isValidBankTransferWebhookRequest(req, routeUrl, body)) {
+    logger.warn('payment.bank_webhook_rejected', {
+      requestId: req.requestId,
+      reason: bankTransferWebhookConfig.secret ? 'invalid_secret' : 'missing_secret_config'
+    });
+    sendJson(res, 401, { ok: false, message: 'Webhook khong hop le' });
     return;
   }
 
-  await updateOrderFromGateway(body.orderId, Number(body.resultCode) === 0, body);
-  sendJson(res, 200, { status: 'OK' });
-}
+  const transactions = extractBankTransferTransactions(body);
+  const results = [];
 
-async function createZaloPayPayment(req, res) {
-  const sessionUser = getSessionFromRequest(req);
-  if (!sessionUser) {
-    sendJson(res, 401, { ok: false, message: 'Vui long dang nhap truoc khi thanh toan' });
-    return;
+  for (const transaction of transactions) {
+    const result = await markVietQrOrderPaidFromBankTransaction(transaction, {
+      requestId: req.requestId,
+      payload: body
+    });
+    results.push(result);
+
+    if (result.ok && result.order && result.changed !== false) {
+      notifyOrderPaymentStatusChanged(result.order, req.requestId, 'bank_webhook');
+    }
   }
 
-  const user = await getUserByUsername(sessionUser.username);
-  if (!user) {
-    sendJson(res, 404, { ok: false, message: 'Khong tim thay tai khoan' });
-    return;
-  }
-
-  const body = await readRequestBodySafely(req, res);
-  if (!body) return;
-
-  const order = await createOrderFromCart(body.items);
-
-  if (!order.ok) {
-    sendJson(res, 400, { ok: false, message: order.message });
-    return;
-  }
-
-  const missing = ['appId', 'key1', 'key2'].filter(key => !zalopayConfig[key]);
-  if (missing.length) {
-    sendJson(res, 500, { ok: false, message: `Thieu cau hinh ZaloPay: ${missing.join(', ')}` });
-    return;
-  }
-
-  const appTime = Date.now();
-  const appTransId = `${formatDateYYMMDD(new Date())}_${appTime}`;
-  const appUser = body.appUser || 'urbancart';
-  const amount = order.amount;
-  const description = body.description || 'Thanh toan don hang UrbanCart';
-  const embedData = JSON.stringify({ redirecturl: zalopayConfig.returnUrl });
-  const item = JSON.stringify(order.items);
-  const raw = `${zalopayConfig.appId}|${appTransId}|${appUser}|${amount}|${appTime}|${embedData}|${item}`;
-
-  const payload = {
-    app_id: Number(zalopayConfig.appId),
-    app_trans_id: appTransId,
-    app_user: appUser,
-    app_time: appTime,
-    amount,
-    embed_data: embedData,
-    item,
-    description,
-    callback_url: zalopayConfig.callbackUrl,
-    mac: hmacSha256(zalopayConfig.key1, raw)
-  };
-
-  await createLocalOrder('zalopay', appTransId, order, description, toOrderCustomer(user), {
-    status: 'CREATED',
-    requestId: req.requestId
+  const matched = results.filter(result => result.ok).length;
+  logger.info('payment.bank_webhook_processed', {
+    requestId: req.requestId,
+    transactionCount: transactions.length,
+    matched
   });
 
-  try {
-    const zaloResponse = await postJson(zalopayConfig.createUrl, payload);
-    const status = zaloResponse.return_code === 1 ? 'PENDING' : 'FAILED';
-    await updateOrderGatewayResponse(appTransId, status, zaloResponse);
-    sendJson(res, 200, {
-      ok: zaloResponse.return_code === 1,
-      provider: 'zalopay',
-      orderId: appTransId,
-      paymentUrl: zaloResponse.order_url,
-      zalopay: zaloResponse
-    });
-  } catch (err) {
-    await updateOrderGatewayResponse(appTransId, 'FAILED', { error: err.message });
-    logger.error('payment.gateway_request_failed', {
-      requestId: req.requestId,
-      provider: 'zalopay',
-      orderId: appTransId,
-      error: err
-    });
-    sendJson(res, 502, { ok: false, message: 'Khong tao duoc thanh toan ZaloPay', error: err.message });
-  }
-}
-
-async function handleZaloPayCallback(req, res) {
-  const body = await readRequestBodySafely(req, res);
-  if (!body) return;
-
-  const { data, mac } = body;
-
-  if (!data || !mac) {
-    sendJson(res, 400, { return_code: -1, return_message: 'missing data/mac' });
-    return;
-  }
-
-  if (hmacSha256(zalopayConfig.key2, data) !== mac) {
-    sendJson(res, 400, { return_code: -1, return_message: 'mac not equal' });
-    return;
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(data);
-  } catch {
-    sendJson(res, 400, { return_code: -1, return_message: 'invalid data' });
-    return;
-  }
-
-  const success = Number(parsed.return_code || parsed.resultCode || parsed.returncode || -1) === 1;
-  await updateOrderFromGateway(parsed.app_trans_id, success, parsed);
-  sendJson(res, 200, { return_code: 1, return_message: 'OK' });
-}
-
-async function queryZaloPayStatus(req, res) {
-  const body = await readRequestBodySafely(req, res);
-  if (!body) return;
-
-  const appTransId = body.app_trans_id || body.orderId;
-  if (!appTransId) {
-    sendJson(res, 400, { ok: false, message: 'Missing app_trans_id' });
-    return;
-  }
-
-  const data = `${zalopayConfig.appId}|${appTransId}|${zalopayConfig.key1}`;
-  const params = new URLSearchParams();
-  params.append('app_id', zalopayConfig.appId);
-  params.append('app_trans_id', appTransId);
-  params.append('mac', hmacSha256(zalopayConfig.key1, data));
-
-  try {
-    const response = await postForm(zalopayConfig.queryUrl, params);
-    sendJson(res, 200, { ok: true, zalopay: response });
-  } catch (err) {
-    logger.error('payment.status_query_failed', {
-      requestId: req.requestId,
-      provider: 'zalopay',
-      orderId: appTransId,
-      error: err
-    });
-    sendJson(res, 502, { ok: false, message: 'Khong kiem tra duoc trang thai ZaloPay', error: err.message });
-  }
+  sendJson(res, 200, {
+    ok: true,
+    received: transactions.length,
+    matched,
+    results: results.map(result => ({
+      ok: result.ok,
+      orderId: result.order?.orderId || result.orderId || null,
+      reason: result.reason || null
+    }))
+  });
 }
 
 async function createCodOrder(req, res) {
@@ -805,6 +690,11 @@ async function handleProductReviewsRoute(req, res, productId) {
       return;
     }
 
+    broadcastAdminOrderEvent('product.review_created', {
+      ...result.review,
+      productName: result.review?.productName || product.name,
+      summary: result.summary
+    });
     sendJson(res, 201, { ok: true, review: result.review, summary: result.summary });
     return;
   }
@@ -827,10 +717,12 @@ async function getProductReviews(productId, userId = null) {
        o.customer_username,
        o.customer_name,
        u.username,
-       u.full_name
+       u.full_name,
+       p.name AS product_name
      FROM product_reviews pr
      INNER JOIN orders o ON o.id = pr.order_id
      LEFT JOIN users u ON u.id = pr.user_id
+     LEFT JOIN products p ON p.id = pr.product_id
      WHERE pr.product_id = ?
      ORDER BY pr.created_at DESC, pr.id DESC`,
     [Number(productId)]
@@ -929,10 +821,12 @@ async function getProductReviewById(id) {
        o.customer_username,
        o.customer_name,
        u.username,
-       u.full_name
+       u.full_name,
+       p.name AS product_name
      FROM product_reviews pr
      INNER JOIN orders o ON o.id = pr.order_id
      LEFT JOIN users u ON u.id = pr.user_id
+     LEFT JOIN products p ON p.id = pr.product_id
      WHERE pr.id = ?
      LIMIT 1`,
     [Number(id)]
@@ -950,6 +844,7 @@ function rowToReview(row) {
     orderDbId: Number(row.order_id),
     orderId: row.order_code,
     userId: row.user_id === null ? null : Number(row.user_id),
+    productName: row.product_name || '',
     rating: Number(row.rating),
     comment: row.comment || '',
     authorName,
@@ -1168,8 +1063,15 @@ async function getRevenueSummary() {
        COUNT(*) AS order_count,
        COALESCE(SUM(amount), 0) AS revenue
      FROM orders
-     WHERE fulfillment_status <> 'CANCELLED'
-       AND status IN ('PAID', 'COD_PENDING')`
+     WHERE fulfillment_status = 'DELIVERED'
+       AND status IN ('PAID', 'COD_PENDING')
+       AND NOT EXISTS (
+         SELECT 1
+         FROM return_requests rr
+         WHERE rr.order_id = orders.id
+           AND rr.request_type = 'return'
+           AND rr.status IN ('APPROVED', 'COMPLETED')
+       )`
   );
 
   return {
@@ -1197,8 +1099,15 @@ async function getRevenueSummaryByPeriod(period) {
        COUNT(*) AS order_count,
        COALESCE(SUM(amount), 0) AS revenue
      FROM orders
-     WHERE fulfillment_status <> 'CANCELLED'
+     WHERE fulfillment_status = 'DELIVERED'
        AND status IN ('PAID', 'COD_PENDING')
+       AND NOT EXISTS (
+         SELECT 1
+         FROM return_requests rr
+         WHERE rr.order_id = orders.id
+           AND rr.request_type = 'return'
+           AND rr.status IN ('APPROVED', 'COMPLETED')
+       )
      GROUP BY period_key
      ORDER BY period_key DESC
      ${limitClause}`
@@ -1209,6 +1118,176 @@ async function getRevenueSummaryByPeriod(period) {
     orderCount: Number(row.order_count) || 0,
     revenue: Number(row.revenue) || 0
   })).reverse();
+}
+
+async function getUserNotifications(userId) {
+  const orders = await getOrdersByUserId(userId);
+  return orders
+    .map(orderToUserNotification)
+    .filter(Boolean)
+    .sort(sortNotificationsByDate)
+    .slice(0, 80);
+}
+
+async function getAdminNotifications() {
+  const [orders, returnRequests, reviews] = await Promise.all([
+    fetchOrders('WHERE o.admin_seen_at IS NULL OR o.fulfillment_status = ?', ['DELIVERED']),
+    getReturnRequests(),
+    getRecentProductReviews(60)
+  ]);
+  const notifications = [];
+
+  orders.forEach((order) => {
+    if (order.isNew) notifications.push(orderToAdminNewNotification(order));
+    if (normalizeFulfillmentStatus(order.fulfillmentStatus) === 'DELIVERED') {
+      notifications.push(orderToAdminDeliveredNotification(order));
+    }
+  });
+  returnRequests.forEach((request) => {
+    if (request) notifications.push(returnRequestToAdminNotification(request));
+  });
+  reviews.forEach((review) => {
+    if (review) notifications.push(reviewToAdminNotification(review));
+  });
+
+  return notifications
+    .filter(Boolean)
+    .sort(sortNotificationsByDate)
+    .slice(0, 120);
+}
+
+function orderToUserNotification(order) {
+  const status = normalizeFulfillmentStatus(order.fulfillmentStatus) || 'ORDERED';
+  const labels = {
+    ORDERED: 'Đã đặt hàng',
+    PREPARING: 'Đã xác nhận',
+    SHIPPING: 'Đang giao',
+    DELIVERED: 'Giao thành công',
+    CANCELLED: 'Bị hủy'
+  };
+  const title = labels[status] || labels.ORDERED;
+
+  return {
+    id: `customer-order-${order.id}-${status}`,
+    audience: 'customer',
+    type: 'order_status',
+    tone: status === 'CANCELLED' ? 'danger' : status === 'SHIPPING' ? 'info' : 'success',
+    icon: status === 'CANCELLED' ? 'bi-x-circle' : status === 'SHIPPING' ? 'bi-truck' : 'bi-bag-check',
+    title,
+    message: `Đơn ${order.orderId || ''}: ${title.toLowerCase()}.`,
+    orderDbId: order.id,
+    orderId: order.orderId,
+    status,
+    amount: order.amount,
+    createdAt: order.updatedAt || order.createdAt
+  };
+}
+
+function orderToAdminNewNotification(order) {
+  const customer = order.customer || {};
+  return {
+    id: `admin-new-order-${order.id}`,
+    audience: 'admin',
+    type: 'order_created',
+    tone: 'info',
+    icon: 'bi-bell-fill',
+    title: 'Có đơn hàng mới',
+    message: `${customer.fullName || customer.username || 'Khách hàng'} vừa đặt đơn ${order.orderId || ''}.`,
+    orderDbId: order.id,
+    orderId: order.orderId,
+    amount: order.amount,
+    createdAt: order.createdAt || order.updatedAt
+  };
+}
+
+function orderToAdminDeliveredNotification(order) {
+  return {
+    id: `admin-delivered-order-${order.id}`,
+    audience: 'admin',
+    type: 'order_delivered',
+    tone: 'success',
+    icon: 'bi-check-circle-fill',
+    title: 'Đơn hàng giao thành công',
+    message: `Đơn ${order.orderId || ''} đã được khách xác nhận nhận hàng.`,
+    orderDbId: order.id,
+    orderId: order.orderId,
+    amount: order.amount,
+    createdAt: order.receivedAt || order.updatedAt || order.createdAt
+  };
+}
+
+function returnRequestToAdminNotification(request) {
+  const customer = request.customer || {};
+  return {
+    id: `admin-return-request-${request.id}`,
+    audience: 'admin',
+    type: 'return_requested',
+    tone: 'warning',
+    icon: 'bi-arrow-counterclockwise',
+    title: 'Yêu cầu đổi/trả hàng',
+    message: `${customer.fullName || customer.username || 'Khách hàng'} yêu cầu ${request.type === 'exchange' ? 'đổi hàng' : 'trả hàng'} cho đơn ${request.orderId || ''}.`,
+    orderDbId: request.orderDbId,
+    orderId: request.orderId,
+    returnRequestId: request.id,
+    amount: request.amount,
+    createdAt: request.createdAt || request.updatedAt
+  };
+}
+
+function reviewToAdminNotification(review) {
+  return {
+    id: `admin-product-review-${review.id}`,
+    audience: 'admin',
+    type: 'product_review',
+    tone: 'review',
+    icon: 'bi-star-fill',
+    title: 'Khách hàng đánh giá sản phẩm',
+    message: `${review.authorName || 'Khách hàng'} đánh giá ${review.productName || 'sản phẩm'} ${Number(review.rating) || 0} sao.`,
+    productId: review.productId,
+    productName: review.productName || '',
+    orderDbId: review.orderDbId,
+    orderId: review.orderId,
+    rating: Number(review.rating) || 0,
+    createdAt: review.createdAt || review.updatedAt
+  };
+}
+
+async function getRecentProductReviews(limit = 60) {
+  const normalizedLimit = Math.min(100, Math.max(1, Number(limit) || 60));
+  const [rows] = await db.execute(
+    `SELECT
+       pr.id,
+       pr.product_id,
+       pr.order_id,
+       pr.user_id,
+       pr.rating,
+       pr.comment,
+       pr.created_at,
+       pr.updated_at,
+       o.order_code,
+       o.customer_username,
+       o.customer_name,
+       u.username,
+       u.full_name,
+       p.name AS product_name
+     FROM product_reviews pr
+     INNER JOIN orders o ON o.id = pr.order_id
+     LEFT JOIN users u ON u.id = pr.user_id
+     LEFT JOIN products p ON p.id = pr.product_id
+     ORDER BY pr.created_at DESC, pr.id DESC
+     LIMIT ${normalizedLimit}`
+  );
+
+  return rows.map(rowToReview);
+}
+
+function sortNotificationsByDate(a, b) {
+  return getTimeValue(b.createdAt) - getTimeValue(a.createdAt);
+}
+
+function getTimeValue(value) {
+  const time = new Date(value || 0).getTime();
+  return Number.isFinite(time) ? time : 0;
 }
 
 function serveStatic(pathname, req, res) {
@@ -1403,54 +1482,6 @@ async function readRequestBodySafely(req, res) {
   }
 }
 
-function postJson(url, payload) {
-  return request(url, JSON.stringify(payload), { 'Content-Type': 'application/json' });
-}
-
-function postForm(url, params) {
-  return request(url, params.toString(), { 'Content-Type': 'application/x-www-form-urlencoded' });
-}
-
-function request(url, body, headers) {
-  return new Promise((resolve, reject) => {
-    const target = new URL(url);
-    const req = https.request({
-      hostname: target.hostname,
-      port: target.port || 443,
-      path: `${target.pathname}${target.search}`,
-      method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Length': Buffer.byteLength(body)
-      },
-      timeout: 30000
-    }, res => {
-      const chunks = [];
-      res.on('data', chunk => chunks.push(chunk));
-      res.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8');
-        let data;
-        try {
-          data = text ? JSON.parse(text) : {};
-        } catch {
-          data = { raw: text };
-        }
-
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          reject(new Error(JSON.stringify(data)));
-          return;
-        }
-        resolve(data);
-      });
-    });
-
-    req.on('timeout', () => req.destroy(new Error('Gateway timeout')));
-    req.on('error', reject);
-    req.write(body);
-    req.end();
-  });
-}
-
 function openAdminOrderEventStream(req, res) {
   const headers = {
     ...securityHeaders,
@@ -1595,28 +1626,6 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
-function sendPaymentReturn(res, provider, params) {
-  res.writeHead(200, {
-    ...securityHeaders,
-    'Content-Type': 'text/html; charset=utf-8'
-  });
-  res.end(`<!doctype html>
-<html lang="vi">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ket qua thanh toan ${provider}</title>
-  <style>body{font-family:Arial,sans-serif;max-width:720px;margin:48px auto;padding:0 20px;color:#151515}pre{background:#f6f6f6;padding:16px;border-radius:8px;overflow:auto}</style>
-</head>
-<body>
-  <h1>Ket qua thanh toan ${provider}</h1>
-  <p>Cong thanh toan da chuyen huong ve website. Ket qua chinh thuc nen duoc cap nhat qua IPN/callback.</p>
-  <pre>${escapeHtml(JSON.stringify(params, null, 2))}</pre>
-  <p><a href="/">Quay lai UrbanCart</a></p>
-</body>
-</html>`);
-}
-
 function getCorsHeaders(req) {
   const origin = req?.headers?.origin;
 
@@ -1636,8 +1645,199 @@ function getCorsHeaders(req) {
   return {};
 }
 
-function hmacSha256(key, data) {
-  return crypto.createHmac('sha256', key).update(data).digest('hex');
+function normalizeTransferContent(orderId) {
+  return String(orderId || '')
+    .replace(/[^a-zA-Z0-9 _.-]/g, '')
+    .trim()
+    .slice(0, 80);
+}
+
+function buildVietQrImageUrl(amount, transferContent) {
+  const bankId = encodeURIComponent(vietQrConfig.bankId);
+  const accountNo = encodeURIComponent(vietQrConfig.accountNo);
+  const template = encodeURIComponent(vietQrConfig.template || 'compact2');
+  const params = new URLSearchParams({
+    amount: String(Math.max(0, Math.round(Number(amount) || 0))),
+    addInfo: transferContent,
+    accountName: vietQrConfig.accountName
+  });
+
+  return `https://img.vietqr.io/image/${bankId}-${accountNo}-${template}.png?${params.toString()}`;
+}
+
+function isValidBankTransferWebhookRequest(req, routeUrl, body) {
+  const expectedSecret = bankTransferWebhookConfig.secret;
+  if (!expectedSecret) return false;
+
+  const authorization = String(req.headers.authorization || '');
+  const bearerToken = authorization.toLowerCase().startsWith('bearer ')
+    ? authorization.slice(7).trim()
+    : '';
+  const suppliedSecrets = [
+    routeUrl.searchParams.get('secret'),
+    routeUrl.searchParams.get('token'),
+    headerValue(req, 'x-webhook-secret'),
+    headerValue(req, 'x-bank-webhook-secret'),
+    headerValue(req, 'x-casso-secret'),
+    bearerToken,
+    body?.secret,
+    body?.token,
+    body?.secure_token,
+    body?.secureToken,
+    body?.webhookSecret
+  ].filter(Boolean).map(value => String(value).trim());
+
+  return suppliedSecrets.some(secret => timingSafeEqualString(secret, expectedSecret));
+}
+
+function headerValue(req, name) {
+  const value = req.headers[name];
+  if (Array.isArray(value)) return value[0] || '';
+  return value || '';
+}
+
+function timingSafeEqualString(left, right) {
+  const leftBuffer = Buffer.from(String(left));
+  const rightBuffer = Buffer.from(String(right));
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function extractBankTransferTransactions(payload) {
+  const candidates = [];
+  collectBankTransactionCandidates(payload, candidates);
+
+  return candidates
+    .map(normalizeBankTransferTransaction)
+    .filter(transaction => transaction.amount && (
+      transaction.orderCode ||
+      transaction.description ||
+      transaction.reference
+    ));
+}
+
+function collectBankTransactionCandidates(value, candidates) {
+  if (!value) return;
+
+  if (Array.isArray(value)) {
+    value.forEach(item => collectBankTransactionCandidates(item, candidates));
+    return;
+  }
+
+  if (typeof value !== 'object') return;
+
+  const nestedKeys = [
+    'data',
+    'transactions',
+    'transaction',
+    'bankTransaction',
+    'bankTransactions',
+    'records',
+    'items',
+    'payload'
+  ];
+  const nested = nestedKeys
+    .map(key => value[key])
+    .filter(item => item && item !== value);
+
+  if (looksLikeBankTransaction(value)) {
+    candidates.push(value);
+  }
+
+  nested.forEach(item => collectBankTransactionCandidates(item, candidates));
+}
+
+function looksLikeBankTransaction(value) {
+  return Boolean(
+    value &&
+    typeof value === 'object' &&
+    (
+      value.amount !== undefined ||
+      value.creditAmount !== undefined ||
+      value.transactionAmount !== undefined ||
+      value.transferAmount !== undefined ||
+      value.orderCode !== undefined ||
+      value.description !== undefined ||
+      value.content !== undefined ||
+      value.tid !== undefined ||
+      value.reference !== undefined
+    )
+  );
+}
+
+function normalizeBankTransferTransaction(value) {
+  const description = [
+    firstString(
+      value.description,
+      value.desc,
+      value.content,
+      value.transferContent,
+      value.transactionContent,
+      value.remark,
+      value.memo,
+      value.addInfo
+    ),
+    firstString(value.tid)
+  ].filter(Boolean).join(' ');
+
+  return {
+    amount: normalizeBankTransferAmount(
+      value.amount ??
+      value.creditAmount ??
+      value.transactionAmount ??
+      value.transferAmount ??
+      value.money ??
+      value.value
+    ),
+    orderCode: firstString(value.orderCode, value.order_code),
+    description,
+    reference: firstString(value.reference, value.ref, value.transactionId, value.transaction_id, value.tid, value.id),
+    accountNo: firstString(
+      value.accountNumber,
+      value.accountNo,
+      value.bankAccount,
+      value.bankAccountNo,
+      value.receiverAccountNumber,
+      value.receiveAccountNumber,
+      value.toAccountNumber,
+      value.virtualAccountNumber,
+      value.subAccId
+    ),
+    raw: value
+  };
+}
+
+function normalizeBankTransferAmount(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+  }
+
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const sign = text.includes('-') && !text.includes('+') ? -1 : 1;
+  if (sign < 0) return null;
+  const digits = text.replace(/[^\d]/g, '');
+  if (!digits) return null;
+  const amount = Number(digits);
+  return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
+}
+
+function firstString(...values) {
+  const value = values.find(item => item !== undefined && item !== null && String(item).trim());
+  return value === undefined ? '' : String(value).trim();
+}
+
+function getOrderCodeFromBankTransaction(transaction) {
+  const explicitOrderCode = firstString(transaction.orderCode);
+  if (/^VQR[a-zA-Z0-9._-]{8,80}$/.test(explicitOrderCode)) return explicitOrderCode;
+
+  const haystack = [transaction.description, transaction.reference].filter(Boolean).join(' ');
+  const match = haystack.match(/\bVQR[a-zA-Z0-9._-]{8,80}\b/);
+  return match ? match[0] : '';
+}
+
+function normalizeAccountIdentifier(value) {
+  return String(value || '').replace(/\D/g, '');
 }
 
 function normalizeAmount(value) {
@@ -2352,6 +2552,165 @@ async function markOrderSeen(orderDbId) {
   return orders[0] || null;
 }
 
+async function markVietQrTransferConfirmed(orderDbId, userId) {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      `SELECT id, user_id, provider, status, fulfillment_status
+       FROM orders
+       WHERE id = ?
+       FOR UPDATE`,
+      [Number(orderDbId)]
+    );
+
+    if (!rows.length || Number(rows[0].user_id) !== Number(userId)) {
+      await connection.rollback();
+      return { ok: false, statusCode: 404, message: 'Khong tim thay don hang' };
+    }
+
+    const order = rows[0];
+    if (String(order.provider || '').toLowerCase() !== 'vietqr') {
+      await connection.rollback();
+      return { ok: false, statusCode: 400, message: 'Don hang nay khong thanh toan bang VietQR' };
+    }
+
+    if (normalizeFulfillmentStatus(order.fulfillment_status) === 'CANCELLED') {
+      await connection.rollback();
+      return { ok: false, statusCode: 409, message: 'Don hang da bi huy' };
+    }
+
+    const currentPaymentStatus = String(order.status || '').toUpperCase();
+    if (currentPaymentStatus === 'PAID' || currentPaymentStatus === 'VIETQR_WAITING_CONFIRMATION') {
+      await connection.commit();
+    } else if (currentPaymentStatus === 'VIETQR_PENDING') {
+      await connection.execute(
+        'UPDATE orders SET status = ? WHERE id = ?',
+        ['VIETQR_WAITING_CONFIRMATION', Number(orderDbId)]
+      );
+      await connection.commit();
+    } else {
+      await connection.rollback();
+      return { ok: false, statusCode: 409, message: 'Trang thai thanh toan khong hop le' };
+    }
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+
+  const orders = await fetchOrders('WHERE o.id = ?', [Number(orderDbId)]);
+  return { ok: true, order: orders[0] };
+}
+
+async function markVietQrOrderPaidFromBankTransaction(transaction, context = {}) {
+  const orderCode = getOrderCodeFromBankTransaction(transaction);
+  if (!orderCode) {
+    return { ok: false, reason: 'missing_order_code' };
+  }
+
+  if (!transaction.amount) {
+    return { ok: false, orderId: orderCode, reason: 'missing_amount' };
+  }
+
+  const configuredAccountNo = normalizeAccountIdentifier(vietQrConfig.accountNo);
+  const transactionAccountNo = normalizeAccountIdentifier(transaction.accountNo);
+  if (configuredAccountNo && transactionAccountNo && configuredAccountNo !== transactionAccountNo) {
+    return { ok: false, orderId: orderCode, reason: 'account_mismatch' };
+  }
+
+  const connection = await db.getConnection();
+  let orderDbId = null;
+  let changed = false;
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      `SELECT id, order_code, provider, status, amount, stock_applied, fulfillment_status
+       FROM orders
+       WHERE order_code = ?
+       FOR UPDATE`,
+      [orderCode]
+    );
+
+    if (!rows.length) {
+      await connection.rollback();
+      return { ok: false, orderId: orderCode, reason: 'order_not_found' };
+    }
+
+    const order = rows[0];
+    orderDbId = Number(order.id);
+    if (String(order.provider || '').toLowerCase() !== 'vietqr') {
+      await connection.rollback();
+      return { ok: false, orderId: orderCode, reason: 'provider_mismatch' };
+    }
+
+    const expectedAmount = Number(order.amount) || 0;
+    const delta = Math.abs(Number(transaction.amount) - expectedAmount);
+    if (delta > bankTransferWebhookConfig.amountTolerance) {
+      await connection.rollback();
+      return { ok: false, orderId: orderCode, reason: 'amount_mismatch' };
+    }
+
+    const gatewayPayload = {
+      source: 'bank_transfer_webhook',
+      receivedAt: new Date().toISOString(),
+      requestId: context.requestId || null,
+      transaction,
+      payload: context.payload || null
+    };
+
+    if (normalizeFulfillmentStatus(order.fulfillment_status) === 'CANCELLED') {
+      if (String(order.status || '').toUpperCase() !== 'PAID_AFTER_CANCEL') {
+        await connection.execute(
+          'UPDATE orders SET status = ?, gateway_payload = ? WHERE id = ?',
+          ['PAID_AFTER_CANCEL', JSON.stringify(gatewayPayload), orderDbId]
+        );
+        changed = true;
+      }
+      await connection.commit();
+      logger.warn('order.paid_after_cancel', {
+        requestId: context.requestId || null,
+        orderId: orderCode,
+        orderDbId
+      });
+    } else {
+      if (!Number(order.stock_applied)) {
+        await applyOrderStockByDbId(connection, orderDbId);
+      }
+
+      if (String(order.status || '').toUpperCase() !== 'PAID') {
+        await connection.execute(
+          'UPDATE orders SET status = ?, gateway_payload = ? WHERE id = ?',
+          ['PAID', JSON.stringify(gatewayPayload), orderDbId]
+        );
+        changed = true;
+      }
+      await connection.commit();
+      logger.info('order.status_changed', {
+        requestId: context.requestId || null,
+        orderId: orderCode,
+        orderDbId,
+        status: 'PAID',
+        source: 'bank_transfer_webhook'
+      });
+    }
+  } catch (err) {
+    await connection.rollback();
+    logger.error('payment.bank_webhook_update_failed', {
+      requestId: context.requestId || null,
+      orderId: orderCode,
+      error: err
+    });
+    throw err;
+  } finally {
+    connection.release();
+  }
+
+  const orders = await fetchOrders('WHERE o.id = ?', [orderDbId]);
+  return { ok: true, changed, order: orders[0] };
+}
+
 async function updateOrderFulfillmentByAdmin(orderDbId, requestedStatus) {
   const nextStatus = normalizeFulfillmentStatus(requestedStatus);
   if (!nextStatus || ['DELIVERED', 'CANCELLED'].includes(nextStatus)) {
@@ -2540,6 +2899,28 @@ function notifyOrderFulfillmentChanged(order, requestId, actor) {
   });
 }
 
+function notifyOrderPaymentStatusChanged(order, requestId, actor) {
+  const payload = {
+    id: order.id,
+    orderId: order.orderId,
+    userId: order.userId,
+    status: order.status,
+    fulfillmentStatus: order.fulfillmentStatus,
+    updatedAt: order.updatedAt,
+    actor
+  };
+
+  broadcastAdminOrderEvent('order.payment_status_changed', payload);
+  broadcastUserOrderEvent(order.userId, 'order.payment_status_changed', payload);
+  logger.info('order.payment_status_changed', {
+    requestId,
+    orderId: order.orderId,
+    orderDbId: order.id,
+    status: order.status,
+    actor
+  });
+}
+
 function normalizeFulfillmentStatus(value) {
   const normalized = String(value || '').trim().toUpperCase();
   return fulfillmentStatuses.includes(normalized) ? normalized : null;
@@ -2659,12 +3040,6 @@ function parseJson(value, fallback) {
   } catch {
     return fallback;
   }
-}
-
-function formatDateYYMMDD(date) {
-  return String(date.getFullYear()).slice(-2) +
-    String(date.getMonth() + 1).padStart(2, '0') +
-    String(date.getDate()).padStart(2, '0');
 }
 
 function parsePositiveNumber(value, fallback) {

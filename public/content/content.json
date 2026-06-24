@@ -527,12 +527,8 @@
       "text": "Tạm tính"
     },
     {
-      "selector": "#momoCheckout",
-      "text": "Thanh toán MoMo"
-    },
-    {
-      "selector": "#zaloCheckout",
-      "text": "Thanh toán ZaloPay"
+      "selector": "#vietQrCheckout",
+      "text": "Thanh toán bằng VietQR"
     },
     {
       "selector": "#codCheckout",

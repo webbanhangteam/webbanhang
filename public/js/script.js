@@ -15,6 +15,7 @@ const ORDER_FULFILLMENT_STEPS = [
     { value: 'DELIVERED', label: 'Đã nhận hàng' }
 ];
 const CANCELLED_FULFILLMENT_STATUS = 'CANCELLED';
+const VIETQR_WAITING_CONFIRMATION_STATUS = 'VIETQR_WAITING_CONFIRMATION';
 const SEARCH_CATEGORY_TERMS = {
     shoes: ['giày', 'giày dép', 'giày thể thao', 'sneaker', 'shoe', 'shoes', 'footwear'],
     clothing: ['quần áo', 'áo', 'quần', 'thời trang', 'đồ mặc', 'clothing', 'clothes', 'apparel'],
@@ -62,11 +63,13 @@ let userOrderStreamGeneration = 0;
 let adminReturnRequests = [];
 let adminRevenueSummary = null;
 let currentReviewData = null;
+let notifications = [];
 
 const cartCount = document.getElementById('cartCount');
 const cartItems = document.getElementById('cartItems');
 const subtotal = document.getElementById('subtotal');
 const checkoutMessage = document.getElementById('checkoutMessage');
+const vietQrPaymentPanel = document.getElementById('vietQrPaymentPanel');
 const searchInput = document.getElementById('searchInput');
 const searchResults = document.getElementById('searchResults');
 const searchForm = document.getElementById('searchForm');
@@ -121,6 +124,12 @@ const adminReturnRequestsMessage = document.getElementById('adminReturnRequestsM
 const refreshAdminReturnRequestsButton = document.getElementById('refreshAdminReturnRequestsButton');
 const adminRevenueBreakdown = document.getElementById('adminRevenueBreakdown');
 const adminNewOrdersBadge = document.getElementById('adminNewOrdersBadge');
+const notificationLoggedOut = document.getElementById('notificationLoggedOut');
+const notificationPanel = document.getElementById('notificationPanel');
+const notificationList = document.getElementById('notificationList');
+const notificationMessage = document.getElementById('notificationMessage');
+const notificationAudience = document.getElementById('notificationAudience');
+const refreshNotificationsButton = document.getElementById('refreshNotificationsButton');
 const profileLoggedOut = document.getElementById('profileLoggedOut');
 const profileLoggedIn = document.getElementById('profileLoggedIn');
 const profileAvatarLetter = document.getElementById('profileAvatarLetter');
@@ -311,17 +320,19 @@ function bindStaticEvents() {
         });
     }
 
-    document.getElementById('momoCheckout')?.addEventListener('click', () => {
-        startPayment('momo');
-    });
-
-    document.getElementById('zaloCheckout')?.addEventListener('click', () => {
-        startPayment('zalopay');
+    document.getElementById('vietQrCheckout')?.addEventListener('click', () => {
+        startVietQrCheckout();
     });
 
     document.getElementById('codCheckout')?.addEventListener('click', () => {
         startCodCheckout();
     });
+
+    if (refreshNotificationsButton) {
+        refreshNotificationsButton.addEventListener('click', () => {
+            loadNotifications();
+        });
+    }
 
     const loginForm = document.getElementById('loginForm');
     if (loginForm) {
@@ -495,6 +506,21 @@ function clearSession() {
 }
 
 function handleDocumentClick(event) {
+    const vietQrCloseButton = event.target.closest('[data-vietqr-close]');
+    if (vietQrCloseButton) {
+        resetVietQrPanel();
+        return;
+    }
+
+    const vietQrTransferredButton = event.target.closest('[data-vietqr-transferred]');
+    if (vietQrTransferredButton) {
+        markVietQrTransferred(
+            Number(vietQrTransferredButton.dataset.orderDbId),
+            vietQrTransferredButton
+        );
+        return;
+    }
+
     const filterButton = event.target.closest('[data-filter]');
     if (filterButton) {
         applyCategoryFilter(filterButton);
@@ -1192,6 +1218,8 @@ function updateDetailRatingSummary(summary = {}) {
 
     const value = rating.querySelector('span');
     if (value) value.textContent = Number(summary.average || 0).toFixed(1);
+    const stars = rating.querySelector('.stars');
+    if (stars) stars.innerHTML = renderStars(summary.average || 0);
     const count = rating.querySelector('[data-review-count]');
     if (count) count.textContent = `${Number(summary.count || 0)} đánh giá`;
 }
@@ -1469,6 +1497,7 @@ function renderCart() {
     if (cartCount) cartCount.textContent = totalQty;
     if (subtotal) subtotal.textContent = currency.format(total);
     if (checkoutMessage) checkoutMessage.textContent = '';
+    if (cart.length && vietQrPaymentPanel && !vietQrPaymentPanel.hidden) resetVietQrPanel();
     if (!cartItems) return;
 
     if (!cart.length) {
@@ -1692,45 +1721,73 @@ function scrollToProduct(productId) {
     }
 }
 
-async function startPayment(provider) {
+async function startVietQrCheckout() {
     const amount = cart.reduce((sum, item) => {
         return sum + Number(item.price || 0) * Number(item.quantity || 0);
     }, 0);
 
     if (!amount) {
-        checkoutMessage.textContent = contentText('messages.payment.needItems', 'Vui lòng thêm sản phẩm trước khi thanh toán.');
+        checkoutMessage.textContent = contentText('messages.vietqr.needItems', 'Vui lòng thêm sản phẩm trước khi thanh toán VietQR.');
         return;
     }
 
     if (!currentUser?.token) {
-        checkoutMessage.textContent = contentText('messages.payment.needLogin', 'Vui lòng đăng nhập trước khi thanh toán.');
+        checkoutMessage.textContent = contentText('messages.vietqr.needLogin', 'Vui lòng đăng nhập trước khi thanh toán VietQR.');
         showAuthModal();
         return;
     }
 
-    checkoutMessage.textContent = contentText('messages.payment.creating', 'Đang tạo phiên thanh toán...');
+    if (!hasCompleteProfile(currentUser)) {
+        checkoutMessage.textContent = contentText('messages.vietqr.profileMissing', 'Vui lòng cập nhật tên, số điện thoại và địa chỉ ở tài khoản.');
+        if (profileFullName) {
+            profileFullName.focus();
+        } else {
+            window.location.href = '/profile.html';
+        }
+        return;
+    }
+
+    resetVietQrPanel();
+    checkoutMessage.textContent = contentText('messages.vietqr.creating', 'Đang tạo mã VietQR...');
 
     try {
-        const response = await fetch(`/api/payments/${provider}`, {
+        const response = await fetch('/api/payments/vietqr', {
             method: 'POST',
             headers: authHeaders(true),
             body: JSON.stringify({
-                orderInfo: contentText('messages.payment.orderInfo', 'Thanh toán đơn hàng Chill n Free'),
-                description: contentText('messages.payment.orderDescription', 'Thanh toán đơn hàng Chill n Free'),
+                description: contentText('messages.vietqr.description', 'Thanh toán VietQR'),
                 items: getCheckoutItems()
             })
         });
 
         const data = await response.json();
 
-        if (data.paymentUrl) {
-            window.location.href = data.paymentUrl;
+        if (!response.ok) {
+            checkoutMessage.textContent = data.message || contentText('messages.vietqr.createFailed', 'Không tạo được mã VietQR.');
             return;
         }
 
-        checkoutMessage.textContent = data.message || contentText('messages.payment.linkFailed', 'Chưa tạo được liên kết thanh toán.');
+        cart = [];
+        saveCart();
+        renderCart();
+        if (Array.isArray(data.products)) {
+            products = data.products;
+        } else {
+            await loadProducts();
+        }
+        syncCartWithProducts();
+        renderProducts();
+        renderProductDetail();
+        renderSearch(searchInput?.value || '');
+        await loadOrderHistory();
+        await loadNotifications();
+        if (currentUser.role === 'Admin') {
+            await loadAdminOrders();
+        }
+        renderVietQrPayment(data);
+        checkoutMessage.textContent = contentTemplate('messages.vietqr.created', { orderId: data.orderId }, 'Đã tạo đơn VietQR {orderId}.');
     } catch {
-        checkoutMessage.textContent = contentText('messages.payment.gatewayDisconnected', 'Không kết nối được cổng thanh toán.');
+        checkoutMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
     }
 }
 
@@ -1797,6 +1854,104 @@ async function startCodCheckout() {
         checkoutMessage.textContent = contentTemplate('messages.cod.created', { orderId: data.orderId }, 'Đã tạo đơn COD {orderId}.');
     } catch {
         checkoutMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
+    }
+}
+
+function renderVietQrPayment(data) {
+    if (!vietQrPaymentPanel || !data) return;
+
+    ensureVietQrPanelInBody();
+    hideCartDrawer();
+
+    const bank = data.bank || {};
+    const amount = Number(data.amount) || 0;
+    const orderDbId = Number(data.orderDbId || data.id || 0);
+    vietQrPaymentPanel.innerHTML = `
+        <section class="vietqr-dialog" role="dialog" aria-modal="true" aria-labelledby="vietQrDialogTitle">
+            <button type="button" class="vietqr-close" data-vietqr-close aria-label="Đóng">
+                <i class="bi bi-x-lg"></i>
+            </button>
+            <div class="vietqr-head">
+                <div>
+                    <strong id="vietQrDialogTitle">${escapeHtml(data.orderId || '')}</strong>
+                    <span>Quét mã để chuyển khoản</span>
+                </div>
+                <i class="bi bi-qr-code"></i>
+            </div>
+            ${data.qrImageUrl ? `<img src="${escapeAttr(data.qrImageUrl)}" alt="Mã VietQR cho đơn ${escapeAttr(data.orderId || '')}" loading="lazy" decoding="async">` : ''}
+            <dl>
+                <div><dt>Số tiền</dt><dd>${escapeHtml(currency.format(amount))}</dd></div>
+                <div><dt>Ngân hàng</dt><dd>${escapeHtml(bank.bankId || '')}</dd></div>
+                <div><dt>Số tài khoản</dt><dd>${escapeHtml(bank.accountNo || '')}</dd></div>
+                <div><dt>Chủ tài khoản</dt><dd>${escapeHtml(bank.accountName || '')}</dd></div>
+                <div><dt>Nội dung</dt><dd>${escapeHtml(data.transferContent || data.orderId || '')}</dd></div>
+            </dl>
+            <div class="vietqr-actions">
+                <button type="button" class="black-btn" data-vietqr-transferred data-order-db-id="${orderDbId}"${orderDbId ? '' : ' disabled'}>
+                    <i class="bi bi-check2-circle"></i> Đã chuyển khoản
+                </button>
+                <button type="button" class="outline-btn" data-vietqr-close>Đóng</button>
+            </div>
+            <p class="vietqr-note">Sau khi xác nhận đã chuyển, đơn hàng sẽ chuyển sang trạng thái chờ xác nhận.</p>
+        </section>
+    `;
+    vietQrPaymentPanel.hidden = false;
+    document.body.classList.add('vietqr-open');
+}
+
+function resetVietQrPanel() {
+    if (!vietQrPaymentPanel) return;
+    vietQrPaymentPanel.hidden = true;
+    vietQrPaymentPanel.innerHTML = '';
+    document.body.classList.remove('vietqr-open');
+}
+
+function ensureVietQrPanelInBody() {
+    if (vietQrPaymentPanel && vietQrPaymentPanel.parentElement !== document.body) {
+        document.body.appendChild(vietQrPaymentPanel);
+    }
+}
+
+function hideCartDrawer() {
+    const cartDrawer = document.getElementById('cartDrawer');
+    if (!cartDrawer || typeof bootstrap === 'undefined') return;
+
+    const drawer = bootstrap.Offcanvas.getInstance(cartDrawer);
+    if (drawer) drawer.hide();
+}
+
+async function markVietQrTransferred(orderId, button) {
+    if (!currentUser?.token || !orderId) return;
+
+    if (button) button.disabled = true;
+
+    try {
+        const response = await fetch(`/api/orders/${orderId}/vietqr-transfer`, {
+            method: 'POST',
+            headers: authHeaders(false)
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.order) {
+            showToast(data.message || 'Không cập nhật được trạng thái chuyển khoản.', 'error');
+            if (button) button.disabled = false;
+            return;
+        }
+
+        upsertUserOrder(data.order);
+        if (orderHistoryList) renderOrderHistory(userOrders);
+        if (currentUser.role === 'Admin') {
+            adminOrders = adminOrders.map((order) => {
+                return Number(order.id) === Number(orderId) ? data.order : order;
+            });
+            renderAdminOrders(adminOrders);
+        }
+
+        resetVietQrPanel();
+        showToast('Đã ghi nhận chuyển khoản. Đơn hàng đang chờ xác nhận.', 'success');
+    } catch {
+        showToast('Không kết nối được server.', 'error');
+        if (button) button.disabled = false;
     }
 }
 
@@ -1963,6 +2118,11 @@ function updateAccountUi() {
         if (returnsMessage) returnsMessage.textContent = '';
         if (adminOrdersBody) adminOrdersBody.innerHTML = '';
         if (adminOrdersMessage) adminOrdersMessage.textContent = '';
+        if (notificationLoggedOut) notificationLoggedOut.hidden = false;
+        if (notificationPanel) notificationPanel.hidden = true;
+        if (notificationList) notificationList.innerHTML = '';
+        if (notificationMessage) notificationMessage.textContent = '';
+        notifications = [];
         if (adminPanel) adminPanel.hidden = true;
         if (adminAccessMessage) adminAccessMessage.hidden = false;
         return;
@@ -1981,9 +2141,15 @@ function updateAccountUi() {
     switchProfileTab('info');
     if (returnsLoggedOut) returnsLoggedOut.hidden = true;
     if (returnsPanel) returnsPanel.hidden = false;
+    if (notificationLoggedOut) notificationLoggedOut.hidden = true;
+    if (notificationPanel) notificationPanel.hidden = false;
     if (orderHistoryPanel) orderHistoryPanel.hidden = false;
     const isProfilePage = window.location.pathname.endsWith('/profile.html');
-    if (orderHistoryList && isProfilePage) {
+    const isNotificationPage = window.location.pathname.endsWith('/noti.html');
+    if (notificationList && isNotificationPage) {
+        loadNotifications();
+    }
+    if ((orderHistoryList && isProfilePage) || (notificationList && isNotificationPage && currentUser.role !== 'Admin')) {
         startUserOrderNotifications();
     } else {
         stopUserOrderNotifications();
@@ -2004,7 +2170,7 @@ function updateAccountUi() {
     if (currentUser.role === 'Admin') {
         renderAdminStats();
         loadAdminRevenueSummary();
-        if (adminOrdersBody && isAdminPage) {
+        if ((adminOrdersBody && isAdminPage) || (notificationList && isNotificationPage)) {
             startAdminOrderNotifications();
         } else {
             stopAdminOrderNotifications();
@@ -2060,12 +2226,228 @@ function renderAdminStats(orders = null) {
     if (!orders) return;
 
     const revenue = orders.reduce((sum, order) => {
-        return normalizeOrderFulfillmentStatus(order.fulfillmentStatus) === CANCELLED_FULFILLMENT_STATUS
-            ? sum
-            : sum + (Number(order.amount) || 0);
+        return isRevenueOrder(order) ? sum + (Number(order.amount) || 0) : sum;
     }, 0);
     if (statOrderCount) statOrderCount.textContent = orders.length;
     if (statRevenue) statRevenue.textContent = currency.format(revenue);
+}
+
+function isRevenueOrder(order) {
+    if (normalizeOrderFulfillmentStatus(order?.fulfillmentStatus) !== 'DELIVERED') return false;
+
+    const paymentStatus = String(order?.status || '').toUpperCase();
+    const revenuePaymentStatuses = new Set([
+        'PAID',
+        'COD_PENDING'
+    ]);
+    if (!revenuePaymentStatuses.has(paymentStatus)) return false;
+
+    const returnRequest = order?.returnRequest;
+    return !(
+        String(returnRequest?.type || '').toLowerCase() === 'return' &&
+        ['APPROVED', 'COMPLETED'].includes(String(returnRequest?.status || '').toUpperCase())
+    );
+}
+
+async function loadNotifications() {
+    if (!notificationList || !notificationMessage) return null;
+
+    if (!currentUser?.token) {
+        notifications = [];
+        renderNotifications();
+        return null;
+    }
+
+    notificationMessage.textContent = 'Đang tải thông báo...';
+    const endpoint = currentUser.role === 'Admin' ? '/api/admin/notifications' : '/api/notifications/me';
+
+    try {
+        const response = await fetch(endpoint, {
+            headers: authHeaders(false),
+            cache: 'no-store'
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            notificationMessage.textContent = data.message || 'Không tải được thông báo.';
+            return null;
+        }
+
+        notifications = Array.isArray(data.notifications) ? data.notifications : [];
+        renderNotifications();
+        return notifications;
+    } catch {
+        notificationMessage.textContent = 'Không kết nối được server.';
+        return null;
+    }
+}
+
+function renderNotifications() {
+    if (!notificationList || !notificationMessage) return;
+
+    if (notificationAudience) {
+        notificationAudience.textContent = currentUser?.role === 'Admin'
+            ? 'Thông báo quản trị: đơn mới, đơn giao thành công, đổi/trả và đánh giá sản phẩm.'
+            : 'Thông báo đơn hàng: đã xác nhận, đang giao, giao thành công hoặc bị hủy.';
+    }
+
+    if (!notifications.length) {
+        notificationList.innerHTML = '<p class="empty-cart">Chưa có thông báo.</p>';
+        notificationMessage.textContent = '';
+        return;
+    }
+
+    notificationList.innerHTML = notifications.map(renderNotificationItem).join('');
+    notificationMessage.textContent = '';
+}
+
+function renderNotificationItem(notification) {
+    const tone = String(notification.tone || 'info').toLowerCase();
+    const icon = notification.icon || getNotificationIcon(notification);
+    const createdAt = formatOrderDate(notification.createdAt);
+    const meta = [
+        notification.orderId ? `Đơn ${notification.orderId}` : '',
+        notification.amount ? currency.format(Number(notification.amount) || 0) : '',
+        notification.productName || ''
+    ].filter(Boolean).join(' · ');
+    const stars = notification.rating
+        ? `<span class="notification-stars" aria-label="${Number(notification.rating) || 0} sao">${renderStars(notification.rating)}</span>`
+        : '';
+
+    return `
+        <article class="notification-card notification-${escapeAttr(tone)}">
+            <div class="notification-icon"><i class="bi ${escapeAttr(icon)}"></i></div>
+            <div class="notification-body">
+                <header>
+                    <strong>${escapeHtml(notification.title || 'Thông báo')}</strong>
+                    ${createdAt ? `<small>${escapeHtml(createdAt)}</small>` : ''}
+                </header>
+                <p>${escapeHtml(notification.message || '')}</p>
+                ${stars}
+                ${meta ? `<footer>${escapeHtml(meta)}</footer>` : ''}
+            </div>
+        </article>
+    `;
+}
+
+function getNotificationIcon(notification) {
+    const type = String(notification?.type || '');
+    if (type === 'order_created') return 'bi-bell-fill';
+    if (type === 'order_delivered') return 'bi-check-circle-fill';
+    if (type === 'return_requested') return 'bi-arrow-counterclockwise';
+    if (type === 'product_review') return 'bi-star-fill';
+    if (notification?.status === CANCELLED_FULFILLMENT_STATUS) return 'bi-x-circle';
+    if (notification?.status === 'SHIPPING') return 'bi-truck';
+    return 'bi-bag-check';
+}
+
+function upsertNotification(notification) {
+    if (!notificationList || !notification) return;
+
+    notifications = [
+        notification,
+        ...notifications.filter((item) => item.id !== notification.id)
+    ].sort((a, b) => {
+        const left = new Date(a.createdAt || 0).getTime();
+        const right = new Date(b.createdAt || 0).getTime();
+        return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0);
+    }).slice(0, 120);
+    renderNotifications();
+}
+
+function userOrderPayloadToNotification(payload) {
+    if (!payload) return null;
+
+    const status = normalizeOrderFulfillmentStatus(payload.fulfillmentStatus);
+    const labels = {
+        ORDERED: 'Đã đặt hàng',
+        PREPARING: 'Đã xác nhận',
+        SHIPPING: 'Đang giao',
+        DELIVERED: 'Giao thành công',
+        CANCELLED: 'Bị hủy'
+    };
+    const title = labels[status] || labels.ORDERED;
+
+    return {
+        id: `customer-order-${payload.id}-${status}`,
+        audience: 'customer',
+        type: 'order_status',
+        tone: status === CANCELLED_FULFILLMENT_STATUS ? 'danger' : status === 'SHIPPING' ? 'info' : 'success',
+        icon: status === CANCELLED_FULFILLMENT_STATUS ? 'bi-x-circle' : status === 'SHIPPING' ? 'bi-truck' : 'bi-bag-check',
+        title,
+        message: `Đơn ${payload.orderId || ''}: ${title.toLowerCase()}.`,
+        orderDbId: payload.id,
+        orderId: payload.orderId,
+        status,
+        createdAt: payload.updatedAt || new Date().toISOString()
+    };
+}
+
+function adminOrderCreatedPayloadToNotification(payload) {
+    const customer = payload?.customer || {};
+    return {
+        id: `admin-new-order-${payload.id}`,
+        audience: 'admin',
+        type: 'order_created',
+        tone: 'info',
+        icon: 'bi-bell-fill',
+        title: 'Có đơn hàng mới',
+        message: `${customer.fullName || customer.username || 'Khách hàng'} vừa đặt đơn ${payload.orderId || ''}.`,
+        orderDbId: payload.id,
+        orderId: payload.orderId,
+        amount: payload.amount,
+        createdAt: payload.createdAt || new Date().toISOString()
+    };
+}
+
+function adminDeliveredPayloadToNotification(payload) {
+    return {
+        id: `admin-delivered-order-${payload.id}`,
+        audience: 'admin',
+        type: 'order_delivered',
+        tone: 'success',
+        icon: 'bi-check-circle-fill',
+        title: 'Đơn hàng giao thành công',
+        message: `Đơn ${payload.orderId || ''} đã được khách xác nhận nhận hàng.`,
+        orderDbId: payload.id,
+        orderId: payload.orderId,
+        createdAt: payload.receivedAt || payload.updatedAt || new Date().toISOString()
+    };
+}
+
+function adminReturnPayloadToNotification(payload) {
+    const request = payload?.returnRequest || {};
+    return {
+        id: `admin-return-request-${request.id || payload.orderDbId || payload.orderId}`,
+        audience: 'admin',
+        type: 'return_requested',
+        tone: 'warning',
+        icon: 'bi-arrow-counterclockwise',
+        title: 'Yêu cầu đổi/trả hàng',
+        message: `Có yêu cầu đổi/trả cho đơn ${payload.orderId || request.orderId || ''}.`,
+        orderDbId: payload.orderDbId || request.orderDbId,
+        orderId: payload.orderId || request.orderId,
+        returnRequestId: request.id,
+        createdAt: request.createdAt || new Date().toISOString()
+    };
+}
+
+function adminReviewPayloadToNotification(payload) {
+    return {
+        id: `admin-product-review-${payload.id}`,
+        audience: 'admin',
+        type: 'product_review',
+        tone: 'review',
+        icon: 'bi-star-fill',
+        title: 'Khách hàng đánh giá sản phẩm',
+        message: `${payload.authorName || 'Khách hàng'} đánh giá ${payload.productName || 'sản phẩm'} ${Number(payload.rating) || 0} sao.`,
+        productId: payload.productId,
+        productName: payload.productName || '',
+        orderDbId: payload.orderDbId,
+        orderId: payload.orderId,
+        rating: Number(payload.rating) || 0,
+        createdAt: payload.createdAt || new Date().toISOString()
+    };
 }
 
 function updateAdminImagePreview() {
@@ -2125,7 +2507,21 @@ function mergeUserOrders(fetchedOrders) {
     return userOrders;
 }
 
+function upsertUserOrder(order) {
+    if (!order) return userOrders;
+
+    const orderId = Number(order.id);
+    const exists = userOrders.some((entry) => Number(entry.id) === orderId);
+    userOrders = exists
+        ? userOrders.map((entry) => Number(entry.id) === orderId ? order : entry)
+        : [order, ...userOrders];
+    userOrders.sort((a, b) => Number(b.id) - Number(a.id));
+    return userOrders;
+}
+
 function renderOrderHistory(orders) {
+    if (!orderHistoryList || !orderHistoryMessage) return;
+
     if (!orders.length) {
         orderHistoryList.innerHTML = `<p class="empty-cart">${escapeHtml(contentText('messages.orders.empty', 'Chưa có đơn hàng.'))}</p>`;
         orderHistoryMessage.textContent = '';
@@ -2136,6 +2532,12 @@ function renderOrderHistory(orders) {
         const items = Array.isArray(order.items) ? order.items : [];
         const createdAt = order.createdAt ? new Date(order.createdAt).toLocaleString('vi-VN') : '';
         const fulfillmentStatus = normalizeOrderFulfillmentStatus(order.fulfillmentStatus);
+        const paymentStatusLabel = getOrderPaymentLabel(order.status, order.provider);
+        const orderMeta = [
+            order.provider || '',
+            paymentStatusLabel,
+            createdAt
+        ].filter(Boolean).join(' - ');
         const itemRows = items.map((item) => {
             const size = item.size ? ` - Kích cỡ ${escapeHtml(item.size)}` : '';
             const color = item.color ? ` - Màu ${escapeHtml(item.color)}` : '';
@@ -2175,9 +2577,9 @@ function renderOrderHistory(orders) {
                 <header>
                     <div>
                         <h4>${escapeHtml(order.orderId || '')}</h4>
-                        <small>${escapeHtml(order.provider || '')} ${createdAt ? `- ${escapeHtml(createdAt)}` : ''}</small>
+                        <small>${escapeHtml(orderMeta)}</small>
                     </div>
-                    <span class="order-status">${escapeHtml(getOrderFulfillmentLabel(fulfillmentStatus))}</span>
+                    <span class="order-status">${escapeHtml(getOrderDisplayStatusLabel(order))}</span>
                 </header>
                 ${renderOrderFulfillmentProgress(fulfillmentStatus)}
                 <ul>${itemRows}</ul>
@@ -2518,6 +2920,37 @@ function getOrderFulfillmentLabel(status) {
     return ORDER_FULFILLMENT_STEPS.find((step) => step.value === status)?.label || 'Đã đặt hàng';
 }
 
+function getOrderDisplayStatusLabel(order) {
+    const fulfillmentStatus = normalizeOrderFulfillmentStatus(order?.fulfillmentStatus);
+    const paymentStatus = String(order?.status || '').toUpperCase();
+
+    if (fulfillmentStatus === 'ORDERED') {
+        if (paymentStatus === 'PAID') return 'Đã thanh toán';
+        if (paymentStatus === VIETQR_WAITING_CONFIRMATION_STATUS) return 'Chờ xác nhận';
+        if (paymentStatus === 'VIETQR_PENDING') return 'Chờ chuyển khoản';
+    }
+
+    return getOrderFulfillmentLabel(fulfillmentStatus);
+}
+
+function getOrderPaymentLabel(status, provider = '') {
+    const normalized = String(status || '').toUpperCase();
+    const labels = {
+        VIETQR_PENDING: 'Chờ khách chuyển khoản',
+        VIETQR_WAITING_CONFIRMATION: 'Chờ xác nhận chuyển khoản',
+        COD_PENDING: 'Thanh toán khi nhận hàng',
+        PAID: 'Đã thanh toán',
+        PAID_AFTER_CANCEL: 'Đã thanh toán sau khi hủy',
+        PAID_STOCK_ERROR: 'Đã thanh toán, lỗi tồn kho',
+        FAILED: 'Thanh toán thất bại'
+    };
+
+    if (labels[normalized]) return labels[normalized];
+    if (String(provider || '').toLowerCase() === 'vietqr') return 'Thanh toán VietQR';
+    if (String(provider || '').toLowerCase() === 'cod') return 'Thanh toán COD';
+    return normalized;
+}
+
 function getReturnRequestTypeLabel(type) {
     return String(type || '').toLowerCase() === 'exchange' ? 'Đổi hàng' : 'Trả hàng';
 }
@@ -2620,7 +3053,22 @@ function consumeUserOrderEvents(buffer) {
 
 function handleUserOrderEvent(rawEvent) {
     const { eventName, payload } = parseServerSentEvent(rawEvent);
-    if (eventName !== 'order.fulfillment_changed' || !payload) return;
+    if (!payload) return;
+
+    if (eventName === 'order.payment_status_changed') {
+        userOrders = userOrders.map((order) => {
+            if (Number(order.id) !== Number(payload.id)) return order;
+            return {
+                ...order,
+                status: payload.status,
+                updatedAt: payload.updatedAt || order.updatedAt
+            };
+        });
+        renderOrderHistory(userOrders);
+        return;
+    }
+
+    if (eventName !== 'order.fulfillment_changed') return;
 
     userOrders = userOrders.map((order) => {
         if (Number(order.id) !== Number(payload.id)) return order;
@@ -2632,6 +3080,7 @@ function handleUserOrderEvent(rawEvent) {
         };
     });
     renderOrderHistory(userOrders);
+    upsertNotification(userOrderPayloadToNotification(payload));
     if (payload.actor !== 'customer') {
         showToast(
             `Đơn ${payload.orderId}: ${getOrderFulfillmentLabel(normalizeOrderFulfillmentStatus(payload.fulfillmentStatus))}`,
@@ -2708,6 +3157,8 @@ async function cancelOrderFromUi(orderId, actor) {
                 return Number(order.id) === Number(orderId) ? data.order : order;
             });
             renderAdminOrders(adminOrders);
+            renderAdminStats(adminOrders);
+            loadAdminRevenueSummary();
         } else {
             userOrders = userOrders.map((order) => {
                 return Number(order.id) === Number(orderId) ? data.order : order;
@@ -2926,6 +3377,7 @@ async function updateAdminReturnRequest(requestId, status) {
             return Number(request.id) === Number(requestId) ? data.returnRequest : request;
         });
         renderAdminReturnRequests(adminReturnRequests);
+        loadAdminRevenueSummary();
         showToast('Đã cập nhật yêu cầu đổi/trả.', 'success');
     } catch {
         showToast('Không kết nối được server.', 'error');
@@ -3036,6 +3488,7 @@ function handleAdminOrderEvent(rawEvent) {
         renderAdminOrders(adminOrders);
         renderAdminStats(adminOrders);
         loadAdminRevenueSummary();
+        upsertNotification(adminOrderCreatedPayloadToNotification(payload));
         showToast(
             `Có đơn hàng mới ${payload.orderId} - ${currency.format(Number(payload.amount) || 0)}`,
             'info',
@@ -3057,6 +3510,21 @@ function handleAdminOrderEvent(rawEvent) {
         return;
     }
 
+    if (eventName === 'order.payment_status_changed') {
+        adminOrders = adminOrders.map((order) => {
+            if (Number(order.id) !== Number(payload.id)) return order;
+            return {
+                ...order,
+                status: payload.status,
+                updatedAt: payload.updatedAt || order.updatedAt
+            };
+        });
+        renderAdminOrders(adminOrders);
+        renderAdminStats(adminOrders);
+        loadAdminRevenueSummary();
+        return;
+    }
+
     if (eventName === 'order.fulfillment_changed') {
         adminOrders = adminOrders.map((order) => {
             if (Number(order.id) !== Number(payload.id)) return order;
@@ -3069,12 +3537,22 @@ function handleAdminOrderEvent(rawEvent) {
         });
         renderAdminOrders(adminOrders);
         loadAdminRevenueSummary();
+        if (normalizeOrderFulfillmentStatus(payload.fulfillmentStatus) === 'DELIVERED') {
+            upsertNotification(adminDeliveredPayloadToNotification(payload));
+        }
         return;
     }
 
     if (eventName === 'order.return_requested') {
         loadAdminReturnRequests();
+        upsertNotification(adminReturnPayloadToNotification(payload));
         showToast(`Có yêu cầu đổi/trả cho đơn ${payload.orderId || ''}`, 'info', 6000);
+        return;
+    }
+
+    if (eventName === 'product.review_created') {
+        upsertNotification(adminReviewPayloadToNotification(payload));
+        showToast(`Có đánh giá mới cho ${payload.productName || 'sản phẩm'}`, 'info', 6000);
     }
 }
 
@@ -3153,6 +3631,8 @@ async function updateAdminOrderFulfillment(orderId, nextStatus) {
             return Number(order.id) === Number(orderId) ? data.order : order;
         });
         renderAdminOrders(adminOrders);
+        renderAdminStats(adminOrders);
+        loadAdminRevenueSummary();
         showToast(
             `Đã cập nhật: ${getOrderFulfillmentLabel(normalizeOrderFulfillmentStatus(data.order.fulfillmentStatus))}`,
             'success'
@@ -3212,6 +3692,7 @@ function renderAdminOrders(orders) {
             : '';
         const fulfillmentStatus = normalizeOrderFulfillmentStatus(order.fulfillmentStatus);
         const fulfillmentAction = getAdminFulfillmentAction(order.id, fulfillmentStatus);
+        const paymentStatusLabel = getOrderPaymentLabel(order.status, order.provider);
 
         return `
             <tr class="${order.isNew ? 'admin-order-new' : ''}">
@@ -3220,7 +3701,7 @@ function renderAdminOrders(orders) {
                         <strong>${escapeHtml(order.orderId || '')}</strong>
                         ${newOrderBadge}
                     </div>
-                    <small>${escapeHtml(order.status || '')}</small>
+                    <small>${escapeHtml(paymentStatusLabel)}</small>
                     ${seenButton}
                 </td>
                 <td>

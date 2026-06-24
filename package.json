@@ -20,7 +20,9 @@
   },
   "dependencies": {
     "dotenv": "^17.4.2",
-    "mysql2": "^3.22.3"
+    "mysql2": "^3.22.3",
+    "vietqr": "^0.0.1",
+    "vnpay": "^2.5.0"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.0",
@@ -30,7 +32,7 @@
     "nodemon": "^3.1.0",
     "postcss": "^8.5.15",
     "prettier": "^3.3.3",
-    "vitest": "^1.6.0",
-    "tailwindcss": "^4.3.0"
+    "tailwindcss": "^4.3.0",
+    "vitest": "^4.1.9"
   }
 }

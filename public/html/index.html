@@ -52,6 +52,9 @@
                         aria-label="Tài khoản">
                         <i class="bi bi-person"></i>
                     </a>
+                    <a class="icon-btn d-none d-sm-inline-flex" href="/noti.html" aria-label="Thông báo">
+                        <i class="bi bi-bell"></i>
+                    </a>
                     <button class="cart-trigger" type="button" data-bs-toggle="offcanvas" data-bs-target="#cartDrawer"
                         aria-controls="cartDrawer" aria-label="Giỏ hàng">
                         <i class="bi bi-bag"></i>
@@ -79,6 +82,7 @@
                 <a href="#album">Bộ sưu tập</a>
                 <a href="#blog">Cẩm nang</a>
                 <a href="/profile.html">Tài khoản</a>
+                <a href="/noti.html">Thông báo</a>
                 <a href="/admin.html" data-admin-page-link hidden>Trang quản trị</a>
             </div>
             <div class="menu-section">
@@ -225,7 +229,7 @@
                             <i class="bi bi-star-fill"></i>
                         </div>
                         <span>4.9</span>
-                        <span style="color: var(--muted); font-weight: 600;">184 đánh giá</span>
+                        <span data-review-count style="color: var(--muted); font-weight: 600;">0 đánh giá</span>
                     </div>
                     <div class="detail-price">2.890.000đ</div>
                     <!-- <p class="detail-desc">Kiểu dáng cổ điển, màu trắng dễ phối, phù hợp đi học, đi làm và các trang
@@ -727,9 +731,9 @@
             <div class="drawer-summary">
                 <div><span>Tạm tính</span><strong id="subtotal">0đ</strong></div>
                 <p id="checkoutMessage" class="checkout-message"></p>
-                <button class="black-btn" type="button" id="momoCheckout">Thanh toán MoMo</button>
-                <button class="outline-btn" type="button" id="zaloCheckout">Thanh toán ZaloPay</button>
+                <button class="black-btn" type="button" id="vietQrCheckout">Thanh toán bằng VietQR</button>
                 <button class="outline-btn" type="button" id="codCheckout">Thanh toán khi nhận hàng (COD)</button>
+                <div id="vietQrPaymentPanel" class="vietqr-panel" hidden></div>
             </div>
         </div>
     </div>

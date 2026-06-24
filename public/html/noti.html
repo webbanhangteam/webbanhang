@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Thông báo đơn hàng và quản trị tại Shop Anh Thuận.">
+    <title>Thông báo | Shop Anh Thuận</title>
+    <link rel="icon" type="image/png" href="/image/logo-nonbg.png?v=5">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&family=Oswald:wght@500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="/css/tailwind.css">
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+
+<body>
+    <header class="site-header sticky-top">
+        <nav class="navbar navbar-light bg-white shadow-sm">
+            <div class="container-fluid page-pad nav-shell">
+                <a class="brand" href="/"><img src="/image/logo.png" alt=""><span>Shop Anh Thuận</span></a>
+                <div class="header-actions">
+                    <a class="outline-btn page-link-button" href="/profile.html">Tài khoản</a>
+                    <a class="outline-btn page-link-button" href="/">Mua sắm</a>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <main class="standalone-page">
+        <section id="notificationLoggedOut" class="section page-pad account-band">
+            <div>
+                <p>Thông báo</p>
+                <h1>Đăng nhập để xem thông báo đơn hàng.</h1>
+            </div>
+            <div class="account-tools">
+                <a class="black-btn page-link-button" href="/profile.html">Đăng nhập</a>
+            </div>
+        </section>
+
+        <section id="notificationPanel" class="section page-pad notification-page" hidden>
+            <div class="notification-shell">
+                <div class="history-head">
+                    <div>
+                        <p class="menu-label">Thông báo</p>
+                        <h1><i class="bi bi-bell"></i> Trung tâm thông báo</h1>
+                    </div>
+                    <button class="outline-btn compact-button" type="button" id="refreshNotificationsButton">
+                        Tải lại
+                    </button>
+                </div>
+                <p id="notificationAudience" class="notification-audience"></p>
+                <div id="notificationList" class="notification-list"></div>
+                <p id="notificationMessage" class="checkout-message"></p>
+            </div>
+        </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/js/script.js"></script>
+</body>
+
+</html>

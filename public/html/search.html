@@ -32,6 +32,7 @@
                     <a class="icon-btn" href="/profile.html" id="accountButton" aria-label="Tài khoản">
                         <i class="bi bi-person"></i>
                     </a>
+                    <a class="icon-btn" href="/noti.html" aria-label="Thông báo"><i class="bi bi-bell"></i></a>
                     <button class="cart-trigger" type="button" data-bs-toggle="offcanvas"
                         data-bs-target="#cartDrawer" aria-label="Giỏ hàng">
                         <i class="bi bi-bag"></i><span id="cartCount">0</span>
@@ -108,9 +109,9 @@
             <div class="drawer-summary">
                 <div><span>Tạm tính</span><strong id="subtotal">0đ</strong></div>
                 <p id="checkoutMessage" class="checkout-message"></p>
-                <button class="black-btn" type="button" id="momoCheckout">Thanh toán MoMo</button>
-                <button class="outline-btn" type="button" id="zaloCheckout">Thanh toán ZaloPay</button>
+                <button class="black-btn" type="button" id="vietQrCheckout">Thanh toán bằng VietQR</button>
                 <button class="outline-btn" type="button" id="codCheckout">Thanh toán khi nhận hàng (COD)</button>
+                <div id="vietQrPaymentPanel" class="vietqr-panel" hidden></div>
             </div>
         </div>
     </div>

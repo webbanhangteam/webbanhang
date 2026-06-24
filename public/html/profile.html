@@ -26,6 +26,7 @@
                         Thuận</span></a>
                 <div class="header-actions">
                     <a class="outline-btn page-link-button" href="/returns.html">Đổi/trả</a>
+                    <a class="outline-btn page-link-button" href="/noti.html">Thông báo</a>
                     <a class="outline-btn page-link-button" href="/">Tiếp tục mua sắm</a>
                 </div>
             </div>
@@ -37,7 +38,7 @@
             <div id="profileLoggedOut" class="account-band">
                 <div>
                     <p>Tài khoản thành viên</p>
-                    <h2>Đăng nhập để quản lý hồ sơ và đơn hàng.</h2>
+                    <h2 style="font-size:65px; line-height: 120%; ">Đăng nhập để quản lý hồ sơ và đơn hàng.</h2>
                 </div>
                 <div class="account-tools">
                     <p id="accountStatus">Chưa đăng nhập</p>
@@ -73,22 +74,18 @@
                                 <label>Số điện thoại<input id="profilePhone" type="tel" autocomplete="tel"></label>
                                 <label class="form-label">Địa chỉ giao hàng
 
-<div class="address-row">
-    <select id="province">
-        <option value="">Tỉnh / Thành phố</option>
-    </select>
+                                    <div class="address-row">
+                                        <select id="province">
+                                            <option value="">Tỉnh / Thành phố</option>
+                                        </select>
 
-    <select id="ward">
-        <option value="">Phường / Xã</option>
-    </select>
+                                        <select id="ward">
+                                            <option value="">Phường / Xã</option>
+                                        </select>
 
-    <input
-        type="text"
-        id="streetAddress"
-        placeholder="Số nhà, tên đường..."
-    >
-</div>
-</label>
+                                        <input type="text" id="streetAddress" placeholder="Số nhà, tên đường...">
+                                    </div>
+                                </label>
                             </div>
                             <button class="profile-save-btn" type="submit">Lưu thông tin</button>
                             <p id="profileMessage" class="checkout-message"></p>

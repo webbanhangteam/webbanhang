@@ -2391,11 +2391,253 @@ a {
     font-size: 1.1rem;
 }
 
+.vietqr-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 1090;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(15, 23, 42, 0.56);
+}
+
+.vietqr-panel[hidden] {
+    display: none;
+}
+
+.vietqr-open {
+    overflow: hidden;
+}
+
+.vietqr-dialog {
+    position: relative;
+    display: grid;
+    gap: 14px;
+    width: min(430px, 100%);
+    max-height: calc(100vh - 40px);
+    overflow: auto;
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: white;
+    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+}
+
+.vietqr-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    color: var(--ink);
+    background: white;
+}
+
+.vietqr-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.vietqr-head strong,
+.vietqr-head span {
+    display: block;
+}
+
+.vietqr-head span {
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.vietqr-head i {
+    font-size: 1.7rem;
+}
+
+.vietqr-panel img {
+    width: min(260px, 100%);
+    margin: 0 auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: white;
+}
+
+.vietqr-panel dl {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+}
+
+.vietqr-panel dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    font-size: 0.84rem;
+}
+
+.vietqr-panel dt,
+.vietqr-panel dd {
+    margin: 0;
+}
+
+.vietqr-panel dt {
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.vietqr-panel dd {
+    text-align: right;
+    font-weight: 900;
+}
+
+.vietqr-actions {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+}
+
+.vietqr-actions .black-btn,
+.vietqr-actions .outline-btn {
+    justify-content: center;
+    width: 100%;
+}
+
+.vietqr-note {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
 .checkout-message {
     min-height: 24px;
     margin: 0;
     color: var(--accent-dark);
     font-size: 0.9rem;
+}
+
+.notification-page {
+    background: white;
+}
+
+.notification-shell {
+    display: grid;
+    gap: 16px;
+    max-width: 920px;
+    margin: 0 auto;
+}
+
+.notification-shell h1 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    font-family: Oswald, sans-serif;
+    font-size: clamp(2rem, 4vw, 3rem);
+    text-transform: uppercase;
+}
+
+.notification-audience {
+    margin: 0;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.notification-list {
+    display: grid;
+    gap: 12px;
+    min-height: 260px;
+}
+
+.notification-card {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--soft);
+}
+
+.notification-icon {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius);
+    color: white;
+    background: var(--ink);
+    font-size: 1.15rem;
+}
+
+.notification-success .notification-icon {
+    background: #16a34a;
+}
+
+.notification-info .notification-icon {
+    background: #2563eb;
+}
+
+.notification-warning .notification-icon {
+    background: #d97706;
+}
+
+.notification-danger .notification-icon {
+    background: #dc2626;
+}
+
+.notification-review .notification-icon {
+    background: var(--accent);
+}
+
+.notification-body {
+    min-width: 0;
+}
+
+.notification-body header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.notification-body strong,
+.notification-body small,
+.notification-body p,
+.notification-body footer {
+    display: block;
+}
+
+.notification-body strong {
+    font-weight: 900;
+}
+
+.notification-body small,
+.notification-body footer {
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+}
+
+.notification-body p {
+    margin: 6px 0 0;
+    color: var(--ink);
+}
+
+.notification-body footer {
+    margin-top: 8px;
+}
+
+.notification-stars {
+    display: inline-flex;
+    gap: 2px;
+    margin-top: 8px;
+    color: #f59e0b;
 }
 
 .admin-panel {
