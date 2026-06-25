@@ -170,6 +170,23 @@ Admin nhan don moi ngay qua ket noi realtime. Moi don moi co nhan `Moi` va nut
 `Da kiem tra`; thong bao chi duoc xoa sau khi Admin bam nut nay. Trang thai da xem
 duoc luu trong cot `orders.admin_seen_at`, nen van duoc giu sau khi tai lai trang.
 
+Neu dung payOS:
+
+```env
+PAYOS_CLIENT_ID=
+PAYOS_API_KEY=
+PAYOS_CHECKSUM_KEY=
+PAYOS_RETURN_URL=https://your-domain.com/api/payments/payos/return
+PAYOS_CANCEL_URL=https://your-domain.com/api/payments/payos/return
+PAYOS_EXPIRE_MINUTES=30
+```
+
+Trong trang quan tri payOS, cau hinh webhook URL:
+
+```txt
+https://your-domain.com/api/payments/payos/webhook
+```
+
 Neu dung MoMo:
 
 ```env
@@ -286,6 +303,13 @@ DELETE /api/products/:id    Admin token
 ### Payments
 
 ```txt
+POST /api/payments/payos
+POST /api/payments/payos/webhook
+GET  /api/payments/payos/return
+
+POST /api/payments/vietqr
+POST /api/payments/bank-transfer-webhook
+
 POST /api/payments/momo
 POST /api/payments/momo/ipn
 GET  /api/payments/momo/return
@@ -298,7 +322,7 @@ POST /api/payments/zalopay/status
 POST /api/payments/cod
 ```
 
-MoMo, ZaloPay va COD deu yeu cau user dang nhap truoc khi tao don.
+payOS, VietQR, MoMo, ZaloPay va COD deu yeu cau user dang nhap truoc khi tao don.
 
 ### Orders
 
@@ -343,6 +367,20 @@ order_items.product_id
 ```
 
 ## Thanh Toan
+
+### payOS
+
+Quy trinh thanh toan payOS:
+
+1. Dang nhap.
+2. Cap nhat ho so giao hang day du.
+3. Them san pham vao gio hang.
+4. Goi `POST /api/payments/payos`.
+5. Server tao local order voi status `PAYOS_PENDING`, tru ton kho de giu hang, tao link thanh toan payOS va chuyen user sang `checkoutUrl`.
+6. payOS goi `POST /api/payments/payos/webhook`; server kiem tra `signature` bang `PAYOS_CHECKSUM_KEY`, doi chieu so tien va cap nhat order sang `PAID`.
+7. Frontend nhan realtime event/polling va hien thong bao thanh toan thanh cong.
+
+`GET /api/payments/payos/return` chi dung de dieu huong nguoi dung ve `/profile.html` va hien trang thai tren UI; webhook van la nguon cap nhat thanh toan chinh.
 
 ### COD
 

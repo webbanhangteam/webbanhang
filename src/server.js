@@ -94,6 +94,16 @@ const bankTransferWebhookConfig = {
   ).trim(),
   amountTolerance: parseNonNegativeInteger(process.env.BANK_TRANSFER_AMOUNT_TOLERANCE) || 0
 };
+const payOsConfig = {
+  clientId: String(process.env.PAYOS_CLIENT_ID || '').trim(),
+  apiKey: String(process.env.PAYOS_API_KEY || '').trim(),
+  checksumKey: String(process.env.PAYOS_CHECKSUM_KEY || '').trim(),
+  partnerCode: String(process.env.PAYOS_PARTNER_CODE || '').trim(),
+  apiBaseUrl: String(process.env.PAYOS_API_BASE_URL || 'https://api-merchant.payos.vn').replace(/\/+$/, ''),
+  returnUrl: String(process.env.PAYOS_RETURN_URL || `${publicBaseUrl}/api/payments/payos/return`).trim(),
+  cancelUrl: String(process.env.PAYOS_CANCEL_URL || `${publicBaseUrl}/api/payments/payos/return`).trim(),
+  expiredMinutes: parsePositiveNumber(process.env.PAYOS_EXPIRE_MINUTES, 30)
+};
 
 const server = http.createServer(async (req, res) => {
   const requestId = getRequestId(req);
@@ -285,6 +295,21 @@ async function handleApi(req, res, requestUrl) {
     return;
   }
 
+  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/payos') {
+    await createPayOsPayment(req, res);
+    return;
+  }
+
+  if (req.method === 'POST' && routeUrl.pathname === '/api/payments/payos/webhook') {
+    await handlePayOsWebhook(req, res);
+    return;
+  }
+
+  if (req.method === 'GET' && routeUrl.pathname === '/api/payments/payos/return') {
+    await handlePayOsReturn(req, res, routeUrl);
+    return;
+  }
+
   if (req.method === 'POST' && routeUrl.pathname === '/api/payments/vietqr') {
     await createVietQrPayment(req, res);
     return;
@@ -473,6 +498,232 @@ function normalizeApiPath(pathname) {
     return `/api/${pathname.slice('/api/v1/'.length)}`;
   }
   return pathname;
+}
+
+async function createPayOsPayment(req, res) {
+  const sessionUser = getSessionFromRequest(req);
+  if (!sessionUser) {
+    sendJson(res, 401, { ok: false, message: 'Vui long dang nhap truoc khi thanh toan payOS' });
+    return;
+  }
+
+  const user = await getUserByUsername(sessionUser.username);
+  if (!user) {
+    sendJson(res, 404, { ok: false, message: 'Khong tim thay tai khoan' });
+    return;
+  }
+
+  if (!hasDeliveryProfile(user)) {
+    sendJson(res, 400, { ok: false, message: 'Vui long cap nhat ten, so dien thoai va dia chi giao hang' });
+    return;
+  }
+
+  const missing = getMissingPayOsConfig();
+  if (missing.length) {
+    sendJson(res, 500, { ok: false, message: `Thieu cau hinh payOS: ${missing.join(', ')}` });
+    return;
+  }
+
+  const body = await readRequestBodySafely(req, res);
+  if (!body) return;
+
+  const order = await createOrderFromCart(body.items);
+  if (!order.ok) {
+    sendJson(res, 400, { ok: false, message: order.message });
+    return;
+  }
+
+  const orderId = await generatePayOsOrderId();
+  const description = body.description || 'Thanh toan payOS';
+  let savedOrder;
+
+  try {
+    savedOrder = await createLocalOrder('payos', orderId, order, description, toOrderCustomer(user), {
+      status: 'PAYOS_PENDING',
+      applyStock: true,
+      requestId: req.requestId
+    });
+  } catch (err) {
+    logger.warn('order.create_failed', {
+      requestId: req.requestId,
+      provider: 'payos',
+      orderId,
+      userId: user.id || null,
+      error: err.message
+    });
+    sendJson(res, 400, { ok: false, message: err.message || 'Khong tao duoc don payOS' });
+    return;
+  }
+
+  const payOsPayload = buildPayOsCreatePaymentPayload({
+    orderId,
+    amount: order.amount,
+    items: order.items,
+    user
+  });
+
+  let payOsResponse;
+  try {
+    payOsResponse = await requestPayOs('/v2/payment-requests', {
+      method: 'POST',
+      body: payOsPayload
+    });
+  } catch (err) {
+    await markLocalOrderFailedAndReleaseStock(savedOrder.id, {
+      source: 'payos_create',
+      error: err.message
+    }, req.requestId);
+    logger.error('payment.payos_create_failed', {
+      requestId: req.requestId,
+      orderId,
+      orderDbId: savedOrder.id,
+      error: err
+    });
+    sendJson(res, 502, { ok: false, message: 'Khong ket noi duoc payOS' });
+    return;
+  }
+
+  const payOsData = payOsResponse?.data || null;
+  const validResponseSignature = !payOsResponse?.signature ||
+    isValidPayOsSignature(payOsData, payOsResponse.signature);
+
+  if (payOsResponse?.code !== '00' || !payOsData?.checkoutUrl || !validResponseSignature) {
+    await markLocalOrderFailedAndReleaseStock(savedOrder.id, {
+      source: 'payos_create',
+      response: payOsResponse,
+      invalidSignature: !validResponseSignature
+    }, req.requestId);
+    logger.warn('payment.payos_create_rejected', {
+      requestId: req.requestId,
+      orderId,
+      orderDbId: savedOrder.id,
+      code: payOsResponse?.code || null,
+      invalidSignature: !validResponseSignature
+    });
+    sendJson(res, 502, {
+      ok: false,
+      message: payOsResponse?.desc || 'payOS chua tao duoc link thanh toan'
+    });
+    return;
+  }
+
+  await updateOrderGatewayResponse(orderId, 'PAYOS_PENDING', {
+    source: 'payos_create',
+    response: payOsResponse,
+    request: {
+      orderCode: payOsPayload.orderCode,
+      amount: payOsPayload.amount,
+      description: payOsPayload.description,
+      returnUrl: payOsPayload.returnUrl,
+      cancelUrl: payOsPayload.cancelUrl
+    }
+  });
+
+  sendJson(res, 201, {
+    ok: true,
+    provider: 'payos',
+    orderId,
+    amount: order.amount,
+    items: order.items,
+    products: await readProducts(),
+    customer: savedOrder.user,
+    orderDbId: savedOrder.id,
+    checkoutUrl: payOsData.checkoutUrl,
+    paymentLinkId: payOsData.paymentLinkId || payOsData.id || null,
+    qrCode: payOsData.qrCode || '',
+    message: 'Da tao link thanh toan payOS'
+  });
+}
+
+async function handlePayOsWebhook(req, res) {
+  const body = await readRequestBodySafely(req, res);
+  if (!body) return;
+
+  if (!payOsConfig.checksumKey) {
+    logger.warn('payment.payos_webhook_rejected', {
+      requestId: req.requestId,
+      reason: 'missing_checksum_key'
+    });
+    sendJson(res, 500, { ok: false, message: 'Thieu cau hinh payOS checksum key' });
+    return;
+  }
+
+  if (!isValidPayOsSignature(body.data, body.signature)) {
+    logger.warn('payment.payos_webhook_rejected', {
+      requestId: req.requestId,
+      reason: 'invalid_signature'
+    });
+    sendJson(res, 401, { ok: false, message: 'Webhook payOS khong hop le' });
+    return;
+  }
+
+  let result = { ok: false, reason: 'not_paid' };
+  if (body.success === true && String(body.data?.code || '') === '00') {
+    result = await markPayOsOrderPaid(body.data, {
+      requestId: req.requestId,
+      payload: body,
+      source: 'payos_webhook'
+    });
+
+    if (result.ok && result.order && result.changed !== false) {
+      notifyOrderPaymentStatusChanged(result.order, req.requestId, 'payos_webhook');
+    }
+  }
+
+  logger.info('payment.payos_webhook_processed', {
+    requestId: req.requestId,
+    orderId: result.order?.orderId || result.orderId || body.data?.orderCode || null,
+    matched: Boolean(result.ok),
+    reason: result.reason || null
+  });
+
+  sendJson(res, 200, {
+    ok: true,
+    matched: Boolean(result.ok),
+    orderId: result.order?.orderId || result.orderId || null,
+    reason: result.reason || null
+  });
+}
+
+async function handlePayOsReturn(req, res, routeUrl) {
+  const orderCode = String(routeUrl.searchParams.get('orderCode') || '').trim();
+  const status = String(routeUrl.searchParams.get('status') || '').trim().toUpperCase();
+  const isCancelled = String(routeUrl.searchParams.get('cancel') || '').toLowerCase() === 'true' ||
+    status === 'CANCELLED';
+  let finalStatus = isCancelled ? 'CANCELLED' : status || 'PENDING';
+
+  if (!isCancelled && orderCode && !getMissingPayOsConfig().length) {
+    try {
+      const paymentInfo = await requestPayOs(`/v2/payment-requests/${encodeURIComponent(orderCode)}`, {
+        method: 'GET'
+      });
+      const paymentData = paymentInfo?.data || null;
+      if (paymentInfo?.code === '00' && paymentData?.status === 'PAID') {
+        finalStatus = 'PAID';
+        const result = await markPayOsOrderPaid(paymentData, {
+          requestId: req.requestId,
+          payload: paymentInfo,
+          source: 'payos_return'
+        });
+        if (result.ok && result.order && result.changed !== false) {
+          notifyOrderPaymentStatusChanged(result.order, req.requestId, 'payos_return');
+        }
+      }
+    } catch (err) {
+      logger.warn('payment.payos_return_lookup_failed', {
+        requestId: req.requestId,
+        orderId: orderCode,
+        error: err.message
+      });
+    }
+  }
+
+  sendRedirect(res, buildPaymentReturnRedirectUrl({
+    provider: 'payos',
+    status: finalStatus,
+    orderCode,
+    cancelled: isCancelled
+  }));
 }
 
 async function createVietQrPayment(req, res) {
@@ -1190,7 +1441,8 @@ function orderToUserNotifications(order) {
 }
 
 function orderToUserPaymentNotification(order) {
-  if (String(order?.provider || '').toLowerCase() !== 'vietqr') return null;
+  const provider = String(order?.provider || '').toLowerCase();
+  if (!['vietqr', 'payos'].includes(provider)) return null;
   if (String(order?.status || '').toUpperCase() !== 'PAID') return null;
 
   return {
@@ -1652,6 +1904,14 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function sendRedirect(res, location, statusCode = 302) {
+  res.writeHead(statusCode, {
+    ...securityHeaders,
+    Location: location
+  });
+  res.end();
+}
+
 function getCorsHeaders(req) {
   const origin = req?.headers?.origin;
 
@@ -1689,6 +1949,181 @@ function buildVietQrImageUrl(amount, transferContent) {
   });
 
   return `https://img.vietqr.io/image/${bankId}-${accountNo}-${template}.png?${params.toString()}`;
+}
+
+function getMissingPayOsConfig() {
+  return ['clientId', 'apiKey', 'checksumKey'].filter(key => !payOsConfig[key]);
+}
+
+function buildPayOsCreatePaymentPayload({ orderId, amount, items, user }) {
+  const orderCode = Number(orderId);
+  const returnUrl = payOsConfig.returnUrl;
+  const cancelUrl = payOsConfig.cancelUrl;
+  const description = buildPayOsDescription(orderId);
+  const signaturePayload = {
+    amount,
+    cancelUrl,
+    description,
+    orderCode,
+    returnUrl
+  };
+  const payload = {
+    ...signaturePayload,
+    buyerName: String(user.fullName || user.username || '').trim().slice(0, 160),
+    buyerPhone: String(user.phone || '').trim().slice(0, 40),
+    buyerAddress: String(user.address || '').trim().slice(0, 500),
+    items: normalizePayOsItems(items),
+    signature: buildPayOsSignature(signaturePayload)
+  };
+  const expiredAt = Math.floor(Date.now() / 1000) + Math.round(payOsConfig.expiredMinutes * 60);
+
+  if (Number.isSafeInteger(expiredAt) && expiredAt > 0) {
+    payload.expiredAt = expiredAt;
+  }
+
+  return payload;
+}
+
+function buildPayOsDescription(orderId) {
+  return `DH${String(orderId || '').replace(/\D/g, '').slice(-7)}`.slice(0, 9);
+}
+
+function normalizePayOsItems(items) {
+  return (Array.isArray(items) ? items : []).map(item => ({
+    name: String(item.name || 'San pham').slice(0, 255),
+    quantity: Math.max(1, Number(item.quantity) || 1),
+    price: Math.max(0, Math.round(Number(item.unitPrice) || 0))
+  }));
+}
+
+function buildPayOsSignature(data) {
+  const query = convertPayOsObjectToQueryString(sortPayOsObject(data || {}));
+  return crypto
+    .createHmac('sha256', payOsConfig.checksumKey)
+    .update(query)
+    .digest('hex');
+}
+
+function isValidPayOsSignature(data, signature) {
+  if (!payOsConfig.checksumKey || !data || !signature) return false;
+  return timingSafeEqualString(buildPayOsSignature(data), signature);
+}
+
+function sortPayOsObject(object) {
+  return Object.keys(object || {})
+    .sort()
+    .reduce((result, key) => {
+      result[key] = object[key];
+      return result;
+    }, {});
+}
+
+function convertPayOsObjectToQueryString(object) {
+  return Object.keys(object || {})
+    .filter(key => object[key] !== undefined)
+    .map(key => `${key}=${payOsValueToString(object[key])}`)
+    .join('&');
+}
+
+function payOsValueToString(value) {
+  if ([null, undefined, 'undefined', 'null'].includes(value)) return '';
+
+  if (Array.isArray(value)) {
+    return JSON.stringify(value.map(item => {
+      return item && typeof item === 'object' && !Array.isArray(item)
+        ? sortPayOsObject(item)
+        : item;
+    }));
+  }
+
+  return String(value);
+}
+
+async function requestPayOs(pathname, options = {}) {
+  const url = `${payOsConfig.apiBaseUrl}${pathname}`;
+  const headers = {
+    'x-client-id': payOsConfig.clientId,
+    'x-api-key': payOsConfig.apiKey
+  };
+
+  if (payOsConfig.partnerCode) {
+    headers['x-partner-code'] = payOsConfig.partnerCode;
+  }
+
+  const fetchOptions = {
+    method: options.method || 'GET',
+    headers
+  };
+
+  if (options.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    fetchOptions.body = JSON.stringify(options.body);
+  }
+
+  const response = await fetch(url, fetchOptions);
+  const text = await response.text();
+  let payload = {};
+
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { raw: text };
+    }
+  }
+
+  if (!response.ok) {
+    const message = payload?.desc || payload?.message || `payOS HTTP ${response.status}`;
+    throw new Error(message);
+  }
+
+  return payload;
+}
+
+async function generatePayOsOrderId() {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const orderId = String(crypto.randomInt(100000000, 1000000000));
+    const [rows] = await db.execute(
+      'SELECT id FROM orders WHERE order_code = ? LIMIT 1',
+      [orderId]
+    );
+    if (!rows.length) return orderId;
+  }
+
+  throw new Error('Khong tao duoc ma don payOS');
+}
+
+function buildPaymentReturnRedirectUrl({ provider, status, orderCode, cancelled }) {
+  const url = new URL('/profile.html', publicBaseUrl);
+  url.searchParams.set('payment', provider || 'payos');
+  url.searchParams.set('status', status || 'PENDING');
+  if (orderCode) url.searchParams.set('orderCode', orderCode);
+  if (cancelled) url.searchParams.set('cancel', 'true');
+  return `${url.pathname}${url.search}`;
+}
+
+async function markLocalOrderFailedAndReleaseStock(orderDbId, gatewayPayload, requestId) {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    await restoreOrderStockByDbId(connection, Number(orderDbId));
+    await connection.execute(
+      'UPDATE orders SET status = ?, stock_applied = 0, gateway_payload = ? WHERE id = ?',
+      ['FAILED', JSON.stringify(gatewayPayload || {}), Number(orderDbId)]
+    );
+    await connection.commit();
+    logger.warn('order.status_changed', {
+      requestId: requestId || null,
+      orderDbId: Number(orderDbId),
+      status: 'FAILED',
+      source: gatewayPayload?.source || 'payment'
+    });
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
 }
 
 function isValidBankTransferWebhookRequest(req, routeUrl, body) {
@@ -2547,6 +2982,11 @@ async function restoreOrderStockByDbId(connection, orderDbId) {
     );
   }
 
+  await connection.execute(
+    'UPDATE orders SET stock_applied = 0 WHERE id = ?',
+    [orderDbId]
+  );
+
   invalidateProductsCache();
   return true;
 }
@@ -2633,6 +3073,113 @@ async function getVietQrOrderPaymentDetails(orderDbId, userId) {
       }
     }
   };
+}
+
+async function markPayOsOrderPaid(paymentData, context = {}) {
+  const orderCode = String(paymentData?.orderCode || '').trim();
+  if (!orderCode) {
+    return { ok: false, reason: 'missing_order_code' };
+  }
+
+  const paidAmount = normalizePayOsAmount(paymentData.amountPaid ?? paymentData.amount);
+  if (!paidAmount) {
+    return { ok: false, orderId: orderCode, reason: 'missing_amount' };
+  }
+
+  const connection = await db.getConnection();
+  let orderDbId = null;
+  let changed = false;
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      `SELECT id, order_code, provider, status, amount, stock_applied, fulfillment_status
+       FROM orders
+       WHERE order_code = ?
+       FOR UPDATE`,
+      [orderCode]
+    );
+
+    if (!rows.length) {
+      await connection.rollback();
+      return { ok: false, orderId: orderCode, reason: 'order_not_found' };
+    }
+
+    const order = rows[0];
+    orderDbId = Number(order.id);
+    if (String(order.provider || '').toLowerCase() !== 'payos') {
+      await connection.rollback();
+      return { ok: false, orderId: orderCode, reason: 'provider_mismatch' };
+    }
+
+    const expectedAmount = Number(order.amount) || 0;
+    if (Math.abs(paidAmount - expectedAmount) > 0) {
+      await connection.rollback();
+      return { ok: false, orderId: orderCode, reason: 'amount_mismatch' };
+    }
+
+    const gatewayPayload = {
+      source: context.source || 'payos',
+      receivedAt: new Date().toISOString(),
+      requestId: context.requestId || null,
+      paymentData,
+      payload: context.payload || null
+    };
+
+    if (normalizeFulfillmentStatus(order.fulfillment_status) === 'CANCELLED') {
+      if (String(order.status || '').toUpperCase() !== 'PAID_AFTER_CANCEL') {
+        await connection.execute(
+          'UPDATE orders SET status = ?, gateway_payload = ? WHERE id = ?',
+          ['PAID_AFTER_CANCEL', JSON.stringify(gatewayPayload), orderDbId]
+        );
+        changed = true;
+      }
+      await connection.commit();
+      logger.warn('order.paid_after_cancel', {
+        requestId: context.requestId || null,
+        orderId: orderCode,
+        orderDbId,
+        source: context.source || 'payos'
+      });
+    } else {
+      if (!Number(order.stock_applied)) {
+        await applyOrderStockByDbId(connection, orderDbId);
+      }
+
+      if (String(order.status || '').toUpperCase() !== 'PAID') {
+        await connection.execute(
+          'UPDATE orders SET status = ?, gateway_payload = ? WHERE id = ?',
+          ['PAID', JSON.stringify(gatewayPayload), orderDbId]
+        );
+        changed = true;
+      }
+      await connection.commit();
+      logger.info('order.status_changed', {
+        requestId: context.requestId || null,
+        orderId: orderCode,
+        orderDbId,
+        status: 'PAID',
+        source: context.source || 'payos'
+      });
+    }
+  } catch (err) {
+    await connection.rollback();
+    logger.error('payment.payos_update_failed', {
+      requestId: context.requestId || null,
+      orderId: orderCode,
+      error: err
+    });
+    throw err;
+  } finally {
+    connection.release();
+  }
+
+  const orders = await fetchOrders('WHERE o.id = ?', [orderDbId]);
+  return { ok: true, changed, order: orders[0] };
+}
+
+function normalizePayOsAmount(value) {
+  const amount = Number(value);
+  return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
 }
 
 async function markVietQrOrderPaidFromBankTransaction(transaction, context = {}) {
