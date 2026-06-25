@@ -3596,6 +3596,67 @@ a {
     border-left-color: #16a34a;
 }
 
+.floating-contact {
+    position: fixed;
+    right: 18px;
+    bottom: 22px;
+    z-index: 1080;
+    display: grid;
+    gap: 10px;
+}
+
+.floating-contact-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 54px;
+    height: 54px;
+    border-radius: 999px;
+    color: white;
+    text-decoration: none;
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.24);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.floating-contact-btn:hover {
+    color: white;
+    transform: translateY(-3px);
+    box-shadow: 0 18px 38px rgba(15, 23, 42, 0.3);
+    filter: brightness(1.04);
+}
+
+.floating-contact-btn.zalo {
+    background: #0068ff;
+    font-size: 0.78rem;
+    font-weight: 900;
+    letter-spacing: 0;
+}
+
+.floating-contact-btn.messenger {
+    background: linear-gradient(135deg, #00b2ff 0%, #006aff 52%, #a033ff 100%);
+}
+
+.floating-contact-btn i {
+    font-size: 1.55rem;
+    line-height: 1;
+}
+
+@media (max-width: 575.98px) {
+    .floating-contact {
+        right: 14px;
+        bottom: 16px;
+        gap: 8px;
+    }
+
+    .floating-contact-btn {
+        width: 48px;
+        height: 48px;
+    }
+
+    .floating-contact-btn i {
+        font-size: 1.38rem;
+    }
+}
+
 .toast-error {
     border-left-color: #dc2626;
 }

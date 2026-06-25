@@ -7,6 +7,10 @@ const SESSION_KEY = 'shopSession';
 const CART_KEY = 'shopCart';
 const WISHLIST_KEY = 'shopWishlist';
 const CONTENT_URL = '/content.json';
+const FLOATING_CONTACT_LINKS = {
+    zalo: 'https://zalo.me/84392230313',
+    messenger: 'https://m.me/ThuajNguyxn'
+};
 const ADMIN_ORDER_STREAM_RECONNECT_MS = 3000;
 const ORDER_FULFILLMENT_STEPS = [
     { value: 'ORDERED', label: 'Đã đặt hàng' },
@@ -174,6 +178,7 @@ loadSiteContent().finally(() => {
 
 async function init() {
     applySiteContent();
+    renderFloatingContactButtons();
     bindStaticEvents();
     renderProductSkeletons();
     await restoreSession();
@@ -194,6 +199,24 @@ async function init() {
     updateAccountUi();
     renderAdminProducts();
     await handlePaymentReturnNotice();
+}
+
+function renderFloatingContactButtons() {
+    if (document.querySelector('.floating-contact')) return;
+
+    const contact = document.createElement('aside');
+    contact.className = 'floating-contact';
+    contact.setAttribute('aria-label', 'Liên hệ nhanh');
+    contact.innerHTML = `
+        <a class="floating-contact-btn zalo" href="${FLOATING_CONTACT_LINKS.zalo}" target="_blank" rel="noopener noreferrer" aria-label="Nhắn Zalo cho admin" title="Nhắn Zalo">
+            <span>Zalo</span>
+        </a>
+        <a class="floating-contact-btn messenger" href="${FLOATING_CONTACT_LINKS.messenger}" target="_blank" rel="noopener noreferrer" aria-label="Nhắn Messenger cho admin" title="Nhắn Messenger">
+            <i class="bi bi-messenger" aria-hidden="true"></i>
+        </a>
+    `;
+
+    document.body.appendChild(contact);
 }
 
 async function loadSiteContent() {
