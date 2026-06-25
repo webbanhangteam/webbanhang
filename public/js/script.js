@@ -64,6 +64,8 @@ let adminReturnRequests = [];
 let adminRevenueSummary = null;
 let currentReviewData = null;
 let notifications = [];
+let unreadNotificationCount = 0;
+let adminNotificationUsers = [];
 let vietQrPaymentPollTimer = null;
 let vietQrPaymentPollOrderId = null;
 let cartSyncTimer = null;
@@ -133,6 +135,16 @@ const notificationList = document.getElementById('notificationList');
 const notificationMessage = document.getElementById('notificationMessage');
 const notificationAudience = document.getElementById('notificationAudience');
 const refreshNotificationsButton = document.getElementById('refreshNotificationsButton');
+const notificationLinks = document.querySelectorAll('a[href="/noti.html"]');
+const adminNotificationForm = document.getElementById('adminNotificationForm');
+const adminNotificationTarget = document.getElementById('adminNotificationTarget');
+const adminNotificationUserField = document.getElementById('adminNotificationUserField');
+const adminNotificationUsername = document.getElementById('adminNotificationUsername');
+const adminNotificationUserList = document.getElementById('adminNotificationUserList');
+const adminNotificationTone = document.getElementById('adminNotificationTone');
+const adminNotificationTitle = document.getElementById('adminNotificationTitle');
+const adminNotificationMessageInput = document.getElementById('adminNotificationMessageInput');
+const adminNotificationStatus = document.getElementById('adminNotificationStatus');
 const profileLoggedOut = document.getElementById('profileLoggedOut');
 const profileLoggedIn = document.getElementById('profileLoggedIn');
 const profileAvatarLetter = document.getElementById('profileAvatarLetter');
@@ -284,6 +296,7 @@ function bindStaticEvents() {
     document.addEventListener('click', handleDocumentClick);
     document.addEventListener('submit', handleDocumentSubmit);
     document.addEventListener('change', handleDocumentChange);
+    ensureNotificationBadges();
 
     if (searchInput) {
         searchInput.addEventListener('input', () => {
@@ -338,8 +351,16 @@ function bindStaticEvents() {
 
     if (refreshNotificationsButton) {
         refreshNotificationsButton.addEventListener('click', () => {
-            loadNotifications();
+            loadNotifications({ markRead: true });
         });
+    }
+
+    if (adminNotificationForm) {
+        adminNotificationForm.addEventListener('submit', submitAdminNotificationForm);
+    }
+
+    if (adminNotificationTarget) {
+        adminNotificationTarget.addEventListener('change', updateAdminNotificationTargetUi);
     }
 
     const loginForm = document.getElementById('loginForm');
@@ -2305,6 +2326,9 @@ function updateAccountUi() {
         if (notificationList) notificationList.innerHTML = '';
         if (notificationMessage) notificationMessage.textContent = '';
         notifications = [];
+        unreadNotificationCount = 0;
+        updateNotificationBadge();
+        if (adminNotificationForm) adminNotificationForm.hidden = true;
         if (adminPanel) adminPanel.hidden = true;
         if (adminAccessMessage) adminAccessMessage.hidden = false;
         return;
@@ -2326,16 +2350,14 @@ function updateAccountUi() {
     if (notificationLoggedOut) notificationLoggedOut.hidden = true;
     if (notificationPanel) notificationPanel.hidden = false;
     if (orderHistoryPanel) orderHistoryPanel.hidden = false;
-    const isProfilePage = window.location.pathname.endsWith('/profile.html');
     const isNotificationPage = window.location.pathname.endsWith('/noti.html');
     if (notificationList && isNotificationPage) {
-        loadNotifications();
-    }
-    if ((orderHistoryList && isProfilePage) || (notificationList && isNotificationPage && currentUser.role !== 'Admin')) {
-        startUserOrderNotifications();
+        loadNotifications({ markRead: true });
     } else {
-        stopUserOrderNotifications();
+        loadNotificationUnreadCount();
     }
+    updateAdminNotificationComposer(isNotificationPage);
+
     const isReturnsPage = window.location.pathname.endsWith('/returns.html');
     if (returnOrdersList && isReturnsPage) {
         loadReturnOrdersPage();
@@ -2352,12 +2374,10 @@ function updateAccountUi() {
     if (currentUser.role === 'Admin') {
         renderAdminStats();
         loadAdminRevenueSummary();
-        if ((adminOrdersBody && isAdminPage) || (notificationList && isNotificationPage)) {
-            startAdminOrderNotifications();
-        } else {
-            stopAdminOrderNotifications();
-        }
+        startAdminOrderNotifications();
+        stopUserOrderNotifications();
     } else {
+        startUserOrderNotifications();
         stopAdminOrderNotifications();
     }
 }
@@ -2431,11 +2451,175 @@ function isRevenueOrder(order) {
     );
 }
 
-async function loadNotifications() {
+async function loadNotificationUnreadCount() {
+    if (!currentUser?.token) {
+        unreadNotificationCount = 0;
+        updateNotificationBadge();
+        return 0;
+    }
+
+    try {
+        const response = await fetch('/api/notifications/unread-count', {
+            headers: authHeaders(false),
+            cache: 'no-store'
+        });
+        const data = await response.json();
+        if (!response.ok) return unreadNotificationCount;
+
+        updateNotificationBadge(data.unreadCount);
+        return unreadNotificationCount;
+    } catch {
+        return unreadNotificationCount;
+    }
+}
+
+async function markNotificationsRead() {
+    if (!currentUser?.token) return 0;
+
+    try {
+        const response = await fetch('/api/notifications/read', {
+            method: 'POST',
+            headers: authHeaders(false)
+        });
+        const data = await response.json();
+        if (!response.ok) return 0;
+
+        updateNotificationBadge(0);
+        return Number(data.updatedCount) || 0;
+    } catch {
+        return 0;
+    }
+}
+
+function ensureNotificationBadges() {
+    notificationLinks.forEach((link) => {
+        link.classList.add('notification-link');
+        if (link.querySelector('.notification-dot')) return;
+
+        const dot = document.createElement('span');
+        dot.className = 'notification-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        dot.hidden = true;
+        link.appendChild(dot);
+    });
+}
+
+function updateNotificationBadge(count = unreadNotificationCount) {
+    unreadNotificationCount = Math.max(0, Number(count) || 0);
+    ensureNotificationBadges();
+
+    notificationLinks.forEach((link) => {
+        const hasUnread = unreadNotificationCount > 0;
+        link.classList.toggle('has-unread', hasUnread);
+        const dot = link.querySelector('.notification-dot');
+        if (dot) dot.hidden = !hasUnread;
+    });
+}
+
+function addUnreadNotification() {
+    updateNotificationBadge(unreadNotificationCount + 1);
+}
+
+function updateAdminNotificationComposer(isNotificationPage) {
+    if (!adminNotificationForm) return;
+
+    const visible = Boolean(currentUser?.token && currentUser.role === 'Admin' && isNotificationPage);
+    adminNotificationForm.hidden = !visible;
+    if (!visible) return;
+
+    updateAdminNotificationTargetUi();
+    loadAdminNotificationUsers();
+}
+
+function updateAdminNotificationTargetUi() {
+    const isSingleUser = adminNotificationTarget?.value === 'user';
+
+    if (adminNotificationUserField) adminNotificationUserField.hidden = !isSingleUser;
+    if (adminNotificationUsername) {
+        adminNotificationUsername.disabled = !isSingleUser;
+        adminNotificationUsername.required = isSingleUser;
+        if (!isSingleUser) adminNotificationUsername.value = '';
+    }
+}
+
+async function loadAdminNotificationUsers() {
+    if (!currentUser?.token || currentUser.role !== 'Admin' || adminNotificationUsers.length) return adminNotificationUsers;
+
+    try {
+        const response = await fetch('/api/admin/notification-users', {
+            headers: authHeaders(false),
+            cache: 'no-store'
+        });
+        const data = await response.json();
+        if (!response.ok) return adminNotificationUsers;
+
+        adminNotificationUsers = Array.isArray(data.users) ? data.users : [];
+        renderAdminNotificationUserList();
+        return adminNotificationUsers;
+    } catch {
+        return adminNotificationUsers;
+    }
+}
+
+function renderAdminNotificationUserList() {
+    if (!adminNotificationUserList) return;
+
+    adminNotificationUserList.innerHTML = adminNotificationUsers.map((user) => {
+        const label = [user.fullName, user.phone].filter(Boolean).join(' - ');
+        return `<option value="${escapeAttr(user.username)}"${label ? ` label="${escapeAttr(label)}"` : ''}></option>`;
+    }).join('');
+}
+
+async function submitAdminNotificationForm(event) {
+    event.preventDefault();
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !adminNotificationForm) return;
+
+    const target = adminNotificationTarget?.value === 'user' ? 'user' : 'all';
+    const username = String(adminNotificationUsername?.value || '').trim();
+    const title = String(adminNotificationTitle?.value || '').trim();
+    const message = String(adminNotificationMessageInput?.value || '').trim();
+    const tone = String(adminNotificationTone?.value || 'info').trim();
+
+    if (target === 'user' && !username) {
+        if (adminNotificationStatus) adminNotificationStatus.textContent = 'Vui long chon tai khoan nhan thong bao.';
+        return;
+    }
+
+    const submitButton = adminNotificationForm.querySelector('button[type="submit"]');
+    if (submitButton) submitButton.disabled = true;
+    if (adminNotificationStatus) adminNotificationStatus.textContent = 'Dang gui thong bao...';
+
+    try {
+        const response = await fetch('/api/admin/notifications', {
+            method: 'POST',
+            headers: authHeaders(true),
+            body: JSON.stringify({ target, username, title, message, tone })
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            if (adminNotificationStatus) adminNotificationStatus.textContent = data.message || 'Khong gui duoc thong bao.';
+            return;
+        }
+
+        const count = Number(data.count) || 0;
+        if (adminNotificationStatus) adminNotificationStatus.textContent = `Da gui thong bao toi ${count} tai khoan.`;
+        if (adminNotificationTitle) adminNotificationTitle.value = '';
+        if (adminNotificationMessageInput) adminNotificationMessageInput.value = '';
+        showToast(`Da gui thong bao toi ${count} tai khoan.`, 'success', 5000);
+    } catch {
+        if (adminNotificationStatus) adminNotificationStatus.textContent = 'Khong ket noi duoc server.';
+    } finally {
+        if (submitButton) submitButton.disabled = false;
+    }
+}
+
+async function loadNotifications(options = {}) {
     if (!notificationList || !notificationMessage) return null;
 
     if (!currentUser?.token) {
         notifications = [];
+        updateNotificationBadge(0);
         renderNotifications();
         return null;
     }
@@ -2456,7 +2640,11 @@ async function loadNotifications() {
         }
 
         notifications = Array.isArray(data.notifications) ? data.notifications : [];
+        updateNotificationBadge(data.unreadCount);
         renderNotifications();
+        if (options.markRead) {
+            await markNotificationsRead();
+        }
         return notifications;
     } catch {
         notificationMessage.textContent = 'Không kết nối được server.';
@@ -2514,6 +2702,7 @@ function renderNotificationItem(notification) {
 
 function getNotificationIcon(notification) {
     const type = String(notification?.type || '');
+    if (type === 'manual') return 'bi-megaphone';
     if (type === 'order_created') return 'bi-bell-fill';
     if (type === 'order_delivered') return 'bi-check-circle-fill';
     if (type === 'return_requested') return 'bi-arrow-counterclockwise';
@@ -2523,9 +2712,10 @@ function getNotificationIcon(notification) {
     return 'bi-bag-check';
 }
 
-function upsertNotification(notification) {
-    if (!notificationList || !notification) return;
+function upsertNotification(notification, options = {}) {
+    if (!notification) return;
 
+    const exists = notifications.some((item) => item.id === notification.id);
     notifications = [
         notification,
         ...notifications.filter((item) => item.id !== notification.id)
@@ -2534,7 +2724,20 @@ function upsertNotification(notification) {
         const right = new Date(b.createdAt || 0).getTime();
         return (Number.isFinite(right) ? right : 0) - (Number.isFinite(left) ? left : 0);
     }).slice(0, 120);
-    renderNotifications();
+
+    if (!exists && options.markUnread !== false) {
+        addUnreadNotification();
+    }
+    if (notificationList && notificationMessage) {
+        renderNotifications();
+    }
+}
+
+function handleRealtimeNotification(notification) {
+    if (!notification) return;
+
+    upsertNotification(notification);
+    showToast(notification.title || 'Co thong bao moi', notification.tone || 'info', 6000);
 }
 
 function userOrderPayloadToNotification(payload) {
@@ -3307,6 +3510,11 @@ function handleUserOrderEvent(rawEvent) {
     const { eventName, payload } = parseServerSentEvent(rawEvent);
     if (!payload) return;
 
+    if (eventName === 'notification.created') {
+        handleRealtimeNotification(payload);
+        return;
+    }
+
     if (eventName === 'order.payment_status_changed') {
         userOrders = userOrders.map((order) => {
             if (Number(order.id) !== Number(payload.id)) return order;
@@ -3788,6 +3996,11 @@ function findEventBoundary(buffer) {
 function handleAdminOrderEvent(rawEvent) {
     const { eventName, payload } = parseServerSentEvent(rawEvent);
     if (!payload) return;
+
+    if (eventName === 'notification.created') {
+        handleRealtimeNotification(payload);
+        return;
+    }
 
     if (eventName === 'order.created') {
         const exists = adminOrders.some((order) => Number(order.id) === Number(payload.id));

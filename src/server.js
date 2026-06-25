@@ -303,6 +303,66 @@ async function handleApi(req, res, requestUrl) {
     return;
   }
 
+  if (req.method === 'GET' && routeUrl.pathname === '/api/notifications/unread-count') {
+    const user = getSessionFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, unreadCount: await getUnreadNotificationCount(user.id) });
+    return;
+  }
+
+  if (req.method === 'POST' && routeUrl.pathname === '/api/notifications/read') {
+    const user = getSessionFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, updatedCount: await markNotificationsRead(user.id) });
+    return;
+  }
+
+  if (req.method === 'GET' && routeUrl.pathname === '/api/admin/notification-users') {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, users: await getNotificationRecipients() });
+    return;
+  }
+
+  if (req.method === 'POST' && routeUrl.pathname === '/api/admin/notifications') {
+    const user = getSessionFromRequest(req);
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    const body = await readRequestBodySafely(req, res);
+    if (!body) return;
+
+    const result = await createManualNotifications(user, body);
+    if (!result.ok) {
+      sendJson(res, result.statusCode, { ok: false, message: result.message });
+      return;
+    }
+
+    result.notifications.forEach((notification) => {
+      broadcastUserOrderEvent(notification.userId, 'notification.created', notification);
+    });
+
+    sendJson(res, 201, {
+      ok: true,
+      count: result.notifications.length,
+      notifications: result.notifications
+    });
+    return;
+  }
+
   if (req.method === 'GET' && routeUrl.pathname === '/api/notifications/me') {
     const user = getSessionFromRequest(req);
     if (!user) {
@@ -310,17 +370,36 @@ async function handleApi(req, res, requestUrl) {
       return;
     }
 
-    sendJson(res, 200, { ok: true, notifications: await getUserNotifications(user.id) });
+    const [storedNotifications, generatedNotifications, unreadCount] = await Promise.all([
+      getStoredNotificationsForUser(user.id),
+      getUserNotifications(user.id),
+      getUnreadNotificationCount(user.id)
+    ]);
+    sendJson(res, 200, {
+      ok: true,
+      notifications: mergeNotifications(storedNotifications, generatedNotifications, 120),
+      unreadCount
+    });
     return;
   }
 
   if (req.method === 'GET' && routeUrl.pathname === '/api/admin/notifications') {
+    const user = getSessionFromRequest(req);
     if (!isAdminRequest(req, getSessionFromRequest)) {
       sendForbidden(res, sendJson);
       return;
     }
 
-    sendJson(res, 200, { ok: true, notifications: await getAdminNotifications() });
+    const [storedNotifications, generatedNotifications, unreadCount] = await Promise.all([
+      getStoredNotificationsForUser(user.id),
+      getAdminNotifications(),
+      getUnreadNotificationCount(user.id)
+    ]);
+    sendJson(res, 200, {
+      ok: true,
+      notifications: mergeNotifications(storedNotifications, generatedNotifications, 120),
+      unreadCount
+    });
     return;
   }
 
@@ -1469,6 +1548,200 @@ async function getAdminNotifications() {
     .filter(Boolean)
     .sort(sortNotificationsByDate)
     .slice(0, 120);
+}
+
+function mergeNotifications(firstList, secondList, limit = 120) {
+  const byId = new Map();
+
+  [...(firstList || []), ...(secondList || [])].forEach((notification) => {
+    if (!notification) return;
+    byId.set(notification.id, notification);
+  });
+
+  return Array.from(byId.values())
+    .sort(sortNotificationsByDate)
+    .slice(0, limit);
+}
+
+async function getStoredNotificationsForUser(userId, limit = 80) {
+  const normalizedLimit = Math.min(120, Math.max(1, Number(limit) || 80));
+  const [rows] = await db.execute(
+    `SELECT
+       n.id,
+       n.user_id,
+       n.sender_user_id,
+       n.type,
+       n.tone,
+       n.icon,
+       n.title,
+       n.message,
+       n.read_at,
+       n.created_at,
+       sender.username AS sender_username,
+       sender.full_name AS sender_full_name
+     FROM notifications n
+     LEFT JOIN users sender ON sender.id = n.sender_user_id
+     WHERE n.user_id = ?
+     ORDER BY n.created_at DESC, n.id DESC
+     LIMIT ${normalizedLimit}`,
+    [Number(userId)]
+  );
+
+  return rows.map(rowToStoredNotification);
+}
+
+async function getUnreadNotificationCount(userId) {
+  const [[row]] = await db.execute(
+    'SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND read_at IS NULL',
+    [Number(userId)]
+  );
+  return Number(row?.count) || 0;
+}
+
+async function markNotificationsRead(userId) {
+  const [result] = await db.execute(
+    'UPDATE notifications SET read_at = CURRENT_TIMESTAMP WHERE user_id = ? AND read_at IS NULL',
+    [Number(userId)]
+  );
+  return Number(result.affectedRows) || 0;
+}
+
+async function getNotificationRecipients() {
+  const [rows] = await db.execute(
+    `SELECT id, username, full_name, phone
+     FROM users
+     WHERE LOWER(role) <> 'admin'
+     ORDER BY username ASC
+     LIMIT 500`
+  );
+
+  return rows.map(rowToNotificationRecipient);
+}
+
+async function getNotificationRecipient(input) {
+  const rawUserId = input.userId ?? input.user_id ?? input.id;
+  const userId = Number(rawUserId);
+  const username = String(input.username || input.recipient || '').trim();
+
+  if (!Number.isInteger(userId) && !username) return null;
+
+  const [rows] = await db.execute(
+    `SELECT id, username, full_name, phone
+     FROM users
+     WHERE LOWER(role) <> 'admin'
+       AND (${Number.isInteger(userId) ? 'id = ?' : 'FALSE'} OR ${username ? 'username = ?' : 'FALSE'})
+     LIMIT 1`,
+    [
+      ...(Number.isInteger(userId) ? [userId] : []),
+      ...(username ? [username] : [])
+    ]
+  );
+
+  return rowToNotificationRecipient(rows[0]);
+}
+
+async function createManualNotifications(sender, input) {
+  input = input && typeof input === 'object' ? input : {};
+
+  const title = String(input.title || '').trim().slice(0, 160);
+  const message = String(input.message || '').trim().slice(0, 1200);
+  const target = String(input.target || 'all').toLowerCase();
+  const tone = normalizeManualNotificationTone(input.tone);
+
+  if (!title || !message) {
+    return { ok: false, statusCode: 400, message: 'Vui long nhap tieu de va noi dung thong bao' };
+  }
+
+  const recipients = target === 'user'
+    ? [await getNotificationRecipient(input)].filter(Boolean)
+    : await getNotificationRecipients();
+
+  if (!recipients.length) {
+    return { ok: false, statusCode: 404, message: 'Khong tim thay tai khoan nguoi dung de gui thong bao' };
+  }
+
+  const placeholders = recipients.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+  const params = recipients.flatMap((recipient) => [
+    Number(recipient.id),
+    sender?.id ? Number(sender.id) : null,
+    'manual',
+    tone,
+    'bi-megaphone',
+    title,
+    message
+  ]);
+
+  const [result] = await db.execute(
+    `INSERT INTO notifications (user_id, sender_user_id, type, tone, icon, title, message)
+     VALUES ${placeholders}`,
+    params
+  );
+
+  const firstId = Number(result.insertId) || 0;
+  const createdAt = new Date().toISOString();
+
+  return {
+    ok: true,
+    notifications: recipients.map((recipient, index) => ({
+      id: `manual-${firstId + index}`,
+      dbId: firstId + index,
+      userId: Number(recipient.id),
+      audience: 'customer',
+      type: 'manual',
+      tone,
+      icon: 'bi-megaphone',
+      title,
+      message,
+      recipient,
+      sender: {
+        id: sender?.id ? Number(sender.id) : null,
+        username: sender?.username || '',
+        fullName: sender?.fullName || ''
+      },
+      readAt: null,
+      createdAt
+    }))
+  };
+}
+
+function normalizeManualNotificationTone(value) {
+  const tone = String(value || 'info').toLowerCase();
+  return ['info', 'success', 'warning', 'danger'].includes(tone) ? tone : 'info';
+}
+
+function rowToStoredNotification(row) {
+  if (!row) return null;
+
+  return {
+    id: `manual-${row.id}`,
+    dbId: Number(row.id),
+    userId: Number(row.user_id),
+    audience: 'customer',
+    type: row.type || 'manual',
+    tone: row.tone || 'info',
+    icon: row.icon || 'bi-megaphone',
+    title: row.title || 'Thong bao',
+    message: row.message || '',
+    sender: {
+      id: row.sender_user_id ? Number(row.sender_user_id) : null,
+      username: row.sender_username || '',
+      fullName: row.sender_full_name || ''
+    },
+    readAt: row.read_at || null,
+    unread: !row.read_at,
+    createdAt: row.created_at
+  };
+}
+
+function rowToNotificationRecipient(row) {
+  if (!row) return null;
+
+  return {
+    id: Number(row.id),
+    username: row.username || '',
+    fullName: row.full_name || '',
+    phone: row.phone || ''
+  };
 }
 
 function orderToUserNotification(order) {

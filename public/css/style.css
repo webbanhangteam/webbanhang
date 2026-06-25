@@ -172,6 +172,28 @@ a {
     position: relative;
 }
 
+.notification-link {
+    position: relative;
+}
+
+.notification-dot {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 10px;
+    height: 10px;
+    border: 2px solid white;
+    border-radius: 999px;
+    background: #dc2626;
+    box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.16);
+}
+
+.page-link-button .notification-dot,
+.outline-btn .notification-dot {
+    top: 6px;
+    right: 8px;
+}
+
 .cart-trigger span {
     position: absolute;
     top: -7px;
@@ -2569,6 +2591,25 @@ a {
     font-weight: 700;
 }
 
+.admin-notification-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-notification-form .full-width {
+    grid-column: 1 / -1;
+}
+
+.admin-notification-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+.admin-notification-actions .checkout-message {
+    flex: 1 1 240px;
+}
+
 .notification-list {
     display: grid;
     gap: 12px;
@@ -3622,6 +3663,7 @@ a {
     .profile-layout,
     .account-band,
     .admin-grid,
+    .admin-notification-form,
     .returns-layout,
     .footer-grid {
         grid-template-columns: 1fr;

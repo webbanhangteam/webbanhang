@@ -179,6 +179,28 @@ async function initDatabase() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id INT UNSIGNED NULL,
+      sender_user_id INT UNSIGNED NULL,
+      type VARCHAR(40) NOT NULL DEFAULT 'manual',
+      tone VARCHAR(20) NOT NULL DEFAULT 'info',
+      icon VARCHAR(80) NOT NULL DEFAULT 'bi-megaphone',
+      title VARCHAR(160) NOT NULL,
+      message TEXT NOT NULL,
+      read_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY notifications_user_id_index (user_id),
+      KEY notifications_sender_user_id_index (sender_user_id),
+      KEY notifications_read_at_index (read_at),
+      KEY notifications_created_at_index (created_at),
+      CONSTRAINT notifications_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      CONSTRAINT notifications_sender_user_id_fk FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
   await ensureColumnExists(
     'orders',
     'stock_applied',

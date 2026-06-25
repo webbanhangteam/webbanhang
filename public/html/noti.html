@@ -54,6 +54,46 @@
                     </button>
                 </div>
                 <p id="notificationAudience" class="notification-audience"></p>
+                <form id="adminNotificationForm" class="admin-form admin-notification-form" hidden>
+                    <h2 class="admin-form-title full-width">
+                        <i class="bi bi-send"></i> Gửi thông báo người dùng
+                    </h2>
+                    <label>
+                        Người nhận
+                        <select id="adminNotificationTarget" name="target">
+                            <option value="all">Tất cả người dùng</option>
+                            <option value="user">Một tài khoản</option>
+                        </select>
+                    </label>
+                    <label id="adminNotificationUserField">
+                        Tài khoản
+                        <input id="adminNotificationUsername" name="username" type="text" list="adminNotificationUserList" placeholder="username" disabled>
+                        <datalist id="adminNotificationUserList"></datalist>
+                    </label>
+                    <label>
+                        Kiểu thông báo
+                        <select id="adminNotificationTone" name="tone">
+                            <option value="info">Thông tin</option>
+                            <option value="success">Thành công</option>
+                            <option value="warning">Cảnh báo</option>
+                            <option value="danger">Khẩn cấp</option>
+                        </select>
+                    </label>
+                    <label class="full-width">
+                        Tiêu đề
+                        <input id="adminNotificationTitle" name="title" type="text" maxlength="160" required>
+                    </label>
+                    <label class="full-width">
+                        Nội dung
+                        <textarea id="adminNotificationMessageInput" name="message" rows="4" maxlength="1200" required></textarea>
+                    </label>
+                    <div class="admin-notification-actions full-width">
+                        <button class="black-btn" type="submit">
+                            <i class="bi bi-send"></i> Gửi thông báo
+                        </button>
+                        <p id="adminNotificationStatus" class="checkout-message"></p>
+                    </div>
+                </form>
                 <div id="notificationList" class="notification-list"></div>
                 <p id="notificationMessage" class="checkout-message"></p>
             </div>
