@@ -64,12 +64,14 @@ let adminReturnRequests = [];
 let adminRevenueSummary = null;
 let currentReviewData = null;
 let notifications = [];
+let vietQrPaymentPollTimer = null;
+let vietQrPaymentPollOrderId = null;
 
 const cartCount = document.getElementById('cartCount');
 const cartItems = document.getElementById('cartItems');
 const subtotal = document.getElementById('subtotal');
 const checkoutMessage = document.getElementById('checkoutMessage');
-const vietQrPaymentPanel = document.getElementById('vietQrPaymentPanel');
+let vietQrPaymentPanel = document.getElementById('vietQrPaymentPanel');
 const searchInput = document.getElementById('searchInput');
 const searchResults = document.getElementById('searchResults');
 const searchForm = document.getElementById('searchForm');
@@ -512,12 +514,9 @@ function handleDocumentClick(event) {
         return;
     }
 
-    const vietQrTransferredButton = event.target.closest('[data-vietqr-transferred]');
-    if (vietQrTransferredButton) {
-        markVietQrTransferred(
-            Number(vietQrTransferredButton.dataset.orderDbId),
-            vietQrTransferredButton
-        );
+    const vietQrRestoreButton = event.target.closest('[data-vietqr-restore]');
+    if (vietQrRestoreButton) {
+        restoreVietQrPayment(Number(vietQrRestoreButton.dataset.vietqrRestore), vietQrRestoreButton);
         return;
     }
 
@@ -1786,6 +1785,7 @@ async function startVietQrCheckout() {
         }
         renderVietQrPayment(data);
         checkoutMessage.textContent = contentTemplate('messages.vietqr.created', { orderId: data.orderId }, 'Đã tạo đơn VietQR {orderId}.');
+        showToast('Đơn hàng đã tạo thành công. Vui lòng quét mã VietQR để thanh toán.', 'success', 5000);
     } catch {
         checkoutMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
     }
@@ -1858,9 +1858,10 @@ async function startCodCheckout() {
 }
 
 function renderVietQrPayment(data) {
-    if (!vietQrPaymentPanel || !data) return;
+    if (!data) return;
 
     ensureVietQrPanelInBody();
+    if (!vietQrPaymentPanel) return;
     hideCartDrawer();
 
     const bank = data.bank || {};
@@ -1887,27 +1888,33 @@ function renderVietQrPayment(data) {
                 <div><dt>Nội dung</dt><dd>${escapeHtml(data.transferContent || data.orderId || '')}</dd></div>
             </dl>
             <div class="vietqr-actions">
-                <button type="button" class="black-btn" data-vietqr-transferred data-order-db-id="${orderDbId}"${orderDbId ? '' : ' disabled'}>
-                    <i class="bi bi-check2-circle"></i> Đã chuyển khoản
-                </button>
                 <button type="button" class="outline-btn" data-vietqr-close>Đóng</button>
             </div>
-            <p class="vietqr-note">Sau khi xác nhận đã chuyển, đơn hàng sẽ chuyển sang trạng thái chờ xác nhận.</p>
+            <p class="vietqr-note">Sau khi chuyển khoản thành công, hệ thống sẽ tự động cập nhật trạng thái đơn hàng.</p>
         </section>
     `;
     vietQrPaymentPanel.hidden = false;
     document.body.classList.add('vietqr-open');
+    startVietQrPaymentPolling(orderDbId);
 }
 
 function resetVietQrPanel() {
     if (!vietQrPaymentPanel) return;
+    stopVietQrPaymentPolling();
     vietQrPaymentPanel.hidden = true;
     vietQrPaymentPanel.innerHTML = '';
     document.body.classList.remove('vietqr-open');
 }
 
 function ensureVietQrPanelInBody() {
-    if (vietQrPaymentPanel && vietQrPaymentPanel.parentElement !== document.body) {
+    if (!vietQrPaymentPanel) {
+        vietQrPaymentPanel = document.createElement('div');
+        vietQrPaymentPanel.id = 'vietQrPaymentPanel';
+        vietQrPaymentPanel.className = 'vietqr-panel';
+        vietQrPaymentPanel.hidden = true;
+    }
+
+    if (vietQrPaymentPanel.parentElement !== document.body) {
         document.body.appendChild(vietQrPaymentPanel);
     }
 }
@@ -1920,38 +1927,83 @@ function hideCartDrawer() {
     if (drawer) drawer.hide();
 }
 
-async function markVietQrTransferred(orderId, button) {
+async function restoreVietQrPayment(orderId, button) {
     if (!currentUser?.token || !orderId) return;
 
     if (button) button.disabled = true;
 
     try {
-        const response = await fetch(`/api/orders/${orderId}/vietqr-transfer`, {
-            method: 'POST',
+        const response = await fetch(`/api/orders/${orderId}/vietqr`, {
             headers: authHeaders(false)
         });
         const data = await response.json();
 
-        if (!response.ok || !data.order) {
-            showToast(data.message || 'Không cập nhật được trạng thái chuyển khoản.', 'error');
+        if (!response.ok || !data.payment) {
+            showToast(data.message || 'Không lấy lại được mã VietQR.', 'error');
             if (button) button.disabled = false;
             return;
         }
 
-        upsertUserOrder(data.order);
-        if (orderHistoryList) renderOrderHistory(userOrders);
-        if (currentUser.role === 'Admin') {
-            adminOrders = adminOrders.map((order) => {
-                return Number(order.id) === Number(orderId) ? data.order : order;
-            });
-            renderAdminOrders(adminOrders);
-        }
-
-        resetVietQrPanel();
-        showToast('Đã ghi nhận chuyển khoản. Đơn hàng đang chờ xác nhận.', 'success');
+        renderVietQrPayment(data.payment);
     } catch {
         showToast('Không kết nối được server.', 'error');
+    } finally {
         if (button) button.disabled = false;
+    }
+}
+
+function startVietQrPaymentPolling(orderId) {
+    stopVietQrPaymentPolling();
+    if (!currentUser?.token || !orderId) return;
+
+    vietQrPaymentPollOrderId = Number(orderId);
+    vietQrPaymentPollTimer = window.setInterval(() => {
+        checkVietQrPaymentStatus(vietQrPaymentPollOrderId);
+    }, 4000);
+    checkVietQrPaymentStatus(vietQrPaymentPollOrderId);
+}
+
+function stopVietQrPaymentPolling() {
+    if (vietQrPaymentPollTimer) {
+        window.clearInterval(vietQrPaymentPollTimer);
+        vietQrPaymentPollTimer = null;
+    }
+    vietQrPaymentPollOrderId = null;
+}
+
+async function checkVietQrPaymentStatus(orderId) {
+    if (!currentUser?.token || !orderId) return;
+
+    try {
+        const response = await fetch('/api/orders/me', {
+            headers: authHeaders(false),
+            cache: 'no-store'
+        });
+        const data = await response.json();
+
+        if (!response.ok || !Array.isArray(data.orders)) return;
+
+        mergeUserOrders(data.orders);
+        const order = userOrders.find((entry) => Number(entry.id) === Number(orderId));
+        if (orderHistoryList) renderOrderHistory(userOrders);
+        if (!order) return;
+
+        const paymentStatus = String(order.status || '').toUpperCase();
+        if (paymentStatus === 'PAID') {
+            stopVietQrPaymentPolling();
+            resetVietQrPanel();
+            upsertNotification(userPaymentPayloadToNotification({
+                id: order.id,
+                orderId: order.orderId,
+                status: order.status,
+                updatedAt: order.updatedAt
+            }));
+            showToast(`Đơn ${order.orderId || ''} đã thanh toán thành công.`, 'success', 6000);
+            if (checkoutMessage) checkoutMessage.textContent = `Đơn ${order.orderId || ''} đã thanh toán thành công.`;
+            await loadNotifications();
+        }
+    } catch {
+        // Polling is best effort; the next interval can try again.
     }
 }
 
@@ -2383,6 +2435,24 @@ function userOrderPayloadToNotification(payload) {
     };
 }
 
+function userPaymentPayloadToNotification(payload) {
+    if (!payload || String(payload.status || '').toUpperCase() !== 'PAID') return null;
+
+    return {
+        id: `customer-order-${payload.id}-PAID`,
+        audience: 'customer',
+        type: 'payment_status',
+        tone: 'success',
+        icon: 'bi-check-circle-fill',
+        title: 'Thanh toán thành công',
+        message: `Đơn ${payload.orderId || ''} đã thanh toán thành công.`,
+        orderDbId: payload.id,
+        orderId: payload.orderId,
+        status: 'PAID',
+        createdAt: payload.updatedAt || new Date().toISOString()
+    };
+}
+
 function adminOrderCreatedPayloadToNotification(payload) {
     const customer = payload?.customer || {};
     return {
@@ -2564,6 +2634,11 @@ function renderOrderHistory(orders) {
                 <i class="bi bi-arrow-counterclockwise"></i> Yêu cầu đổi/trả
                </a>`
             : '';
+        const vietQrRestoreButton = isUnpaidVietQrOrder(order)
+            ? `<button type="button" class="order-return-button" data-vietqr-restore="${Number(order.id)}">
+                <i class="bi bi-qr-code"></i> Lấy lại mã QR
+               </button>`
+            : '';
         const returnState = order.returnRequest
             ? `<div class="order-return-state">
                 <strong>${escapeHtml(getReturnRequestTypeLabel(order.returnRequest.type))}</strong>
@@ -2589,6 +2664,7 @@ function renderOrderHistory(orders) {
                 </footer>
                 ${receivedButton}
                 ${cancelButton}
+                ${vietQrRestoreButton}
                 ${returnButton}
                 ${returnState}
             </article>
@@ -2951,6 +3027,14 @@ function getOrderPaymentLabel(status, provider = '') {
     return normalized;
 }
 
+function isUnpaidVietQrOrder(order) {
+    if (String(order?.provider || '').toLowerCase() !== 'vietqr') return false;
+    if (normalizeOrderFulfillmentStatus(order?.fulfillmentStatus) === CANCELLED_FULFILLMENT_STATUS) return false;
+
+    const paymentStatus = String(order?.status || '').toUpperCase();
+    return !['PAID', 'PAID_AFTER_CANCEL', 'FAILED'].includes(paymentStatus);
+}
+
 function getReturnRequestTypeLabel(type) {
     return String(type || '').toLowerCase() === 'exchange' ? 'Đổi hàng' : 'Trả hàng';
 }
@@ -3065,6 +3149,10 @@ function handleUserOrderEvent(rawEvent) {
             };
         });
         renderOrderHistory(userOrders);
+        if (String(payload.status || '').toUpperCase() === 'PAID') {
+            upsertNotification(userPaymentPayloadToNotification(payload));
+            showToast(`Đơn ${payload.orderId || ''} đã thanh toán thành công.`, 'success', 5000);
+        }
         return;
     }
 

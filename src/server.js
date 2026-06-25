@@ -359,22 +359,21 @@ async function handleApi(req, res, requestUrl) {
     return;
   }
 
-  const vietQrTransferMatch = routeUrl.pathname.match(/^\/api\/orders\/(\d+)\/vietqr-transfer$/);
-  if (req.method === 'POST' && vietQrTransferMatch) {
+  const vietQrPaymentDetailsMatch = routeUrl.pathname.match(/^\/api\/orders\/(\d+)\/vietqr$/);
+  if (req.method === 'GET' && vietQrPaymentDetailsMatch) {
     const user = getSessionFromRequest(req);
     if (!user) {
       sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
       return;
     }
 
-    const result = await markVietQrTransferConfirmed(Number(vietQrTransferMatch[1]), user.id);
+    const result = await getVietQrOrderPaymentDetails(Number(vietQrPaymentDetailsMatch[1]), user.id);
     if (!result.ok) {
       sendJson(res, result.statusCode, { ok: false, message: result.message });
       return;
     }
 
-    notifyOrderPaymentStatusChanged(result.order, req.requestId, 'customer');
-    sendJson(res, 200, { ok: true, order: result.order });
+    sendJson(res, 200, { ok: true, payment: result.payment });
     return;
   }
 
@@ -1123,7 +1122,7 @@ async function getRevenueSummaryByPeriod(period) {
 async function getUserNotifications(userId) {
   const orders = await getOrdersByUserId(userId);
   return orders
-    .map(orderToUserNotification)
+    .flatMap(orderToUserNotifications)
     .filter(Boolean)
     .sort(sortNotificationsByDate)
     .slice(0, 80);
@@ -1178,6 +1177,33 @@ function orderToUserNotification(order) {
     orderDbId: order.id,
     orderId: order.orderId,
     status,
+    amount: order.amount,
+    createdAt: order.updatedAt || order.createdAt
+  };
+}
+
+function orderToUserNotifications(order) {
+  return [
+    orderToUserPaymentNotification(order),
+    orderToUserNotification(order)
+  ].filter(Boolean);
+}
+
+function orderToUserPaymentNotification(order) {
+  if (String(order?.provider || '').toLowerCase() !== 'vietqr') return null;
+  if (String(order?.status || '').toUpperCase() !== 'PAID') return null;
+
+  return {
+    id: `customer-order-${order.id}-PAID`,
+    audience: 'customer',
+    type: 'payment_status',
+    tone: 'success',
+    icon: 'bi-check-circle-fill',
+    title: 'Thanh toán thành công',
+    message: `Đơn ${order.orderId || ''} đã thanh toán thành công.`,
+    orderDbId: order.id,
+    orderId: order.orderId,
+    status: 'PAID',
     amount: order.amount,
     createdAt: order.updatedAt || order.createdAt
   };
@@ -2552,56 +2578,61 @@ async function markOrderSeen(orderDbId) {
   return orders[0] || null;
 }
 
-async function markVietQrTransferConfirmed(orderDbId, userId) {
-  const connection = await db.getConnection();
-  try {
-    await connection.beginTransaction();
-    const [rows] = await connection.execute(
-      `SELECT id, user_id, provider, status, fulfillment_status
-       FROM orders
-       WHERE id = ?
-       FOR UPDATE`,
-      [Number(orderDbId)]
-    );
+async function getVietQrOrderPaymentDetails(orderDbId, userId) {
+  const [rows] = await db.execute(
+    `SELECT id, order_code, user_id, provider, status, fulfillment_status, amount
+     FROM orders
+     WHERE id = ?
+     LIMIT 1`,
+    [Number(orderDbId)]
+  );
 
-    if (!rows.length || Number(rows[0].user_id) !== Number(userId)) {
-      await connection.rollback();
-      return { ok: false, statusCode: 404, message: 'Khong tim thay don hang' };
-    }
-
-    const order = rows[0];
-    if (String(order.provider || '').toLowerCase() !== 'vietqr') {
-      await connection.rollback();
-      return { ok: false, statusCode: 400, message: 'Don hang nay khong thanh toan bang VietQR' };
-    }
-
-    if (normalizeFulfillmentStatus(order.fulfillment_status) === 'CANCELLED') {
-      await connection.rollback();
-      return { ok: false, statusCode: 409, message: 'Don hang da bi huy' };
-    }
-
-    const currentPaymentStatus = String(order.status || '').toUpperCase();
-    if (currentPaymentStatus === 'PAID' || currentPaymentStatus === 'VIETQR_WAITING_CONFIRMATION') {
-      await connection.commit();
-    } else if (currentPaymentStatus === 'VIETQR_PENDING') {
-      await connection.execute(
-        'UPDATE orders SET status = ? WHERE id = ?',
-        ['VIETQR_WAITING_CONFIRMATION', Number(orderDbId)]
-      );
-      await connection.commit();
-    } else {
-      await connection.rollback();
-      return { ok: false, statusCode: 409, message: 'Trang thai thanh toan khong hop le' };
-    }
-  } catch (err) {
-    await connection.rollback();
-    throw err;
-  } finally {
-    connection.release();
+  if (!rows.length || Number(rows[0].user_id) !== Number(userId)) {
+    return { ok: false, statusCode: 404, message: 'Khong tim thay don hang' };
   }
 
-  const orders = await fetchOrders('WHERE o.id = ?', [Number(orderDbId)]);
-  return { ok: true, order: orders[0] };
+  const order = rows[0];
+  if (String(order.provider || '').toLowerCase() !== 'vietqr') {
+    return { ok: false, statusCode: 400, message: 'Don hang nay khong thanh toan bang VietQR' };
+  }
+
+  if (normalizeFulfillmentStatus(order.fulfillment_status) === 'CANCELLED') {
+    return { ok: false, statusCode: 409, message: 'Don hang da bi huy' };
+  }
+
+  const paymentStatus = String(order.status || '').toUpperCase();
+  if (paymentStatus === 'PAID') {
+    return { ok: false, statusCode: 409, message: 'Don hang da thanh toan' };
+  }
+
+  const missing = ['bankId', 'accountNo', 'accountName'].filter(key => !vietQrConfig[key]);
+  if (missing.length) {
+    return {
+      ok: false,
+      statusCode: 500,
+      message: `Thieu cau hinh VietQR: ${missing.join(', ')}`
+    };
+  }
+
+  const transferContent = normalizeTransferContent(order.order_code);
+  const amount = Number(order.amount) || 0;
+  return {
+    ok: true,
+    payment: {
+      provider: 'vietqr',
+      orderDbId: Number(order.id),
+      orderId: order.order_code,
+      amount,
+      status: order.status,
+      transferContent,
+      qrImageUrl: buildVietQrImageUrl(amount, transferContent),
+      bank: {
+        bankId: vietQrConfig.bankId,
+        accountNo: vietQrConfig.accountNo,
+        accountName: vietQrConfig.accountName
+      }
+    }
+  };
 }
 
 async function markVietQrOrderPaidFromBankTransaction(transaction, context = {}) {

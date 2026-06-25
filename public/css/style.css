@@ -2497,15 +2497,15 @@ a {
 }
 
 .vietqr-actions {
-    display: grid;
-    grid-template-columns: 1fr auto;
+    display: flex;
+    justify-content: flex-end;
     gap: 10px;
 }
 
 .vietqr-actions .black-btn,
 .vietqr-actions .outline-btn {
     justify-content: center;
-    width: 100%;
+    width: auto;
 }
 
 .vietqr-note {
