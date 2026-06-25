@@ -46,9 +46,9 @@ const SEARCH_COLOR_GROUPS = [
     ['cam', 'orange']
 ];
 
-let products = [];
-let cart = loadJson(CART_KEY, []).map(normalizeCartItem).filter(Boolean);
 let currentUser = normalizeSession(loadJson(SESSION_KEY, null));
+let products = [];
+let cart = loadCart();
 let wishlist = new Set(loadJson(WISHLIST_KEY, []).map((id) => Number(id)).filter(Boolean));
 let currentDetailProductId = null;
 let siteContent = {};
@@ -479,6 +479,7 @@ async function restoreSession() {
             expiresAt: currentUser.expiresAt || null
         };
         localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+        loadCartForCurrentUser();
     } catch {
         clearSession();
     }
@@ -505,6 +506,7 @@ function clearSession() {
     stopUserOrderNotifications();
     localStorage.removeItem(SESSION_KEY);
     currentUser = null;
+    loadCartForCurrentUser();
 }
 
 function handleDocumentClick(event) {
@@ -2052,8 +2054,11 @@ async function submitAuth(url, payload, messageElement) {
             expiresAt: data.expiresAt || null
         };
         localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
+        loadCartForCurrentUser();
         messageElement.textContent = contentText('messages.auth.success', 'Đăng nhập thành công.');
         updateAccountUi();
+        syncCartWithProducts();
+        renderCart();
 
         const modal = bootstrap.Modal.getInstance(document.getElementById('authModal'));
         if (modal) modal.hide();
@@ -4406,7 +4411,30 @@ function formatStock(product) {
 }
 
 function saveCart() {
-    localStorage.setItem(CART_KEY, JSON.stringify(cart));
+    localStorage.setItem(getCartKey(), JSON.stringify(cart));
+}
+
+function loadCart() {
+    return loadJson(getCartKey(), []).map(normalizeCartItem).filter(Boolean);
+}
+
+function loadCartForCurrentUser() {
+    cart = loadCart();
+    renderCart();
+}
+
+function getCartKey() {
+    const userKey = getCurrentUserCartKey();
+    return userKey ? `${CART_KEY}:user:${userKey}` : CART_KEY;
+}
+
+function getCurrentUserCartKey() {
+    if (!currentUser?.token) return '';
+
+    const id = Number(currentUser.id);
+    if (Number.isInteger(id) && id > 0) return String(id);
+
+    return String(currentUser.username || '').trim().toLowerCase();
 }
 
 function loadJson(key, fallback) {
