@@ -66,6 +66,7 @@ let currentReviewData = null;
 let notifications = [];
 let vietQrPaymentPollTimer = null;
 let vietQrPaymentPollOrderId = null;
+let cartSyncTimer = null;
 
 const cartCount = document.getElementById('cartCount');
 const cartItems = document.getElementById('cartItems');
@@ -484,7 +485,7 @@ async function restoreSession() {
             expiresAt: currentUser.expiresAt || null
         };
         localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-        loadCartForCurrentUser();
+        await loadCartForCurrentUser();
     } catch {
         clearSession();
     }
@@ -492,6 +493,12 @@ async function restoreSession() {
 
 async function logout() {
     if (currentUser?.token) {
+        if (cartSyncTimer) {
+            window.clearTimeout(cartSyncTimer);
+            cartSyncTimer = null;
+            await persistCartToServer();
+        }
+
         try {
             await fetch('/api/auth/logout', {
                 method: 'POST',
@@ -509,6 +516,10 @@ async function logout() {
 function clearSession() {
     stopAdminOrderNotifications();
     stopUserOrderNotifications();
+    if (cartSyncTimer) {
+        window.clearTimeout(cartSyncTimer);
+        cartSyncTimer = null;
+    }
     localStorage.removeItem(SESSION_KEY);
     currentUser = null;
     loadCartForCurrentUser();
@@ -2168,7 +2179,7 @@ async function submitAuth(url, payload, messageElement) {
             expiresAt: data.expiresAt || null
         };
         localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
-        loadCartForCurrentUser();
+        await loadCartForCurrentUser();
         messageElement.textContent = contentText('messages.auth.success', 'Đăng nhập thành công.');
         updateAccountUi();
         syncCartWithProducts();
@@ -4716,15 +4727,68 @@ function formatStock(product) {
 
 function saveCart() {
     localStorage.setItem(getCartKey(), JSON.stringify(cart));
+    queueCartSync();
 }
 
 function loadCart() {
     return loadJson(getCartKey(), []).map(normalizeCartItem).filter(Boolean);
 }
 
-function loadCartForCurrentUser() {
+async function loadCartForCurrentUser() {
     cart = loadCart();
     renderCart();
+
+    if (!currentUser?.token) return cart;
+
+    try {
+        const response = await fetch('/api/cart/me', {
+            headers: authHeaders(false)
+        });
+        const data = await response.json();
+
+        if (!response.ok || !Array.isArray(data.items)) return cart;
+
+        cart = data.items.map(normalizeCartItem).filter(Boolean);
+        localStorage.setItem(getCartKey(), JSON.stringify(cart));
+        renderCart();
+        return cart;
+    } catch {
+        return cart;
+    }
+}
+
+function queueCartSync() {
+    if (!currentUser?.token) return;
+
+    if (cartSyncTimer) {
+        window.clearTimeout(cartSyncTimer);
+    }
+
+    cartSyncTimer = window.setTimeout(() => {
+        cartSyncTimer = null;
+        persistCartToServer();
+    }, 250);
+}
+
+async function persistCartToServer() {
+    if (!currentUser?.token) return;
+
+    try {
+        const response = await fetch('/api/cart/me', {
+            method: 'PUT',
+            headers: authHeaders(true),
+            body: JSON.stringify({ items: getCheckoutItems() })
+        });
+        const data = await response.json();
+
+        if (!response.ok || !Array.isArray(data.items)) return;
+
+        cart = data.items.map(normalizeCartItem).filter(Boolean);
+        localStorage.setItem(getCartKey(), JSON.stringify(cart));
+        renderCart();
+    } catch {
+        // Local cart remains usable; the next cart change will try syncing again.
+    }
 }
 
 function getCartKey() {

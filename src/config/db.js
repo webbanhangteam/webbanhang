@@ -122,6 +122,24 @@ async function initDatabase() {
   `);
 
   await pool.execute(`
+    CREATE TABLE IF NOT EXISTS cart_items (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id INT UNSIGNED NOT NULL,
+      product_id INT UNSIGNED NOT NULL,
+      size VARCHAR(40) NULL,
+      color VARCHAR(80) NULL,
+      quantity INT UNSIGNED NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY cart_items_user_id_index (user_id),
+      KEY cart_items_product_id_index (product_id),
+      CONSTRAINT cart_items_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      CONSTRAINT cart_items_product_id_fk FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS return_requests (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       order_id BIGINT UNSIGNED NOT NULL,
