@@ -25,6 +25,7 @@ const publicBaseUrl = (process.env.PUBLIC_BASE_URL || process.env.BASE_URL || `h
 const sessions = new Map();
 const adminOrderEventClients = new Set();
 const userOrderEventClients = new Set();
+const notificationEventClients = new Set();
 const userDataFile = path.join(root, 'data', 'DATA.txt');
 const fulfillmentStatuses = ['ORDERED', 'PREPARING', 'SHIPPING', 'DELIVERED', 'CANCELLED'];
 const refundStatuses = ['NONE', 'PENDING', 'PROCESSING', 'REFUNDED', 'FAILED'];
@@ -325,6 +326,17 @@ async function handleApi(req, res, requestUrl) {
     return;
   }
 
+  if (req.method === 'GET' && routeUrl.pathname === '/api/notifications/me/events') {
+    const user = getSessionFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
+      return;
+    }
+
+    openNotificationEventStream(req, res, user);
+    return;
+  }
+
   if (req.method === 'GET' && routeUrl.pathname === '/api/admin/notification-users') {
     if (!isAdminRequest(req, getSessionFromRequest)) {
       sendForbidden(res, sendJson);
@@ -352,6 +364,7 @@ async function handleApi(req, res, requestUrl) {
     }
 
     result.notifications.forEach((notification) => {
+      broadcastNotificationEvent(notification.userId, 'notification.created', notification);
       broadcastUserOrderEvent(notification.userId, 'notification.created', notification);
     });
 
@@ -2177,6 +2190,48 @@ function openUserOrderEventStream(req, res, user) {
   res.on('error', cleanup);
 }
 
+function openNotificationEventStream(req, res, user) {
+  const headers = {
+    ...securityHeaders,
+    ...getCorsHeaders(req),
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  };
+
+  res.writeHead(200, headers);
+  res.write('retry: 3000\n\n');
+  writeServerSentEvent(res, 'connected', { time: new Date().toISOString() });
+
+  const client = {
+    req,
+    res,
+    userId: Number(user.id),
+    heartbeat: null
+  };
+  const cleanup = () => {
+    if (client.heartbeat) clearInterval(client.heartbeat);
+    notificationEventClients.delete(client);
+  };
+
+  client.heartbeat = setInterval(() => {
+    const sessionUser = getSessionFromRequest(req);
+    if (!sessionUser || Number(sessionUser.id) !== client.userId) {
+      cleanup();
+      res.end();
+      return;
+    }
+
+    res.write(`: heartbeat ${Date.now()}\n\n`);
+  }, 20000);
+  client.heartbeat.unref();
+
+  notificationEventClients.add(client);
+  req.on('close', cleanup);
+  res.on('error', cleanup);
+}
+
 function broadcastAdminOrderEvent(event, payload) {
   for (const client of adminOrderEventClients) {
     try {
@@ -2203,6 +2258,21 @@ function broadcastUserOrderEvent(userId, event, payload) {
   }
 }
 
+function broadcastNotificationEvent(userId, event, payload) {
+  if (!userId) return;
+
+  for (const client of notificationEventClients) {
+    if (Number(client.userId) !== Number(userId)) continue;
+
+    try {
+      writeServerSentEvent(client.res, event, payload);
+    } catch {
+      if (client.heartbeat) clearInterval(client.heartbeat);
+      notificationEventClients.delete(client);
+    }
+  }
+}
+
 function writeServerSentEvent(res, event, payload) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
@@ -2221,6 +2291,14 @@ function closeUserOrderEventStreams() {
     client.res.end();
   }
   userOrderEventClients.clear();
+}
+
+function closeNotificationEventStreams() {
+  for (const client of notificationEventClients) {
+    if (client.heartbeat) clearInterval(client.heartbeat);
+    client.res.end();
+  }
+  notificationEventClients.clear();
 }
 
 function sendJson(res, statusCode, payload) {
@@ -4555,6 +4633,7 @@ async function shutdown(signal) {
   logger.info('server.shutdown_started', { signal });
   closeAdminOrderEventStreams();
   closeUserOrderEventStreams();
+  closeNotificationEventStreams();
 
   server.close(async () => {
     try {

@@ -60,6 +60,9 @@ let userOrders = [];
 let userOrderStreamController = null;
 let userOrderStreamReconnectTimer = null;
 let userOrderStreamGeneration = 0;
+let notificationStreamController = null;
+let notificationStreamReconnectTimer = null;
+let notificationStreamGeneration = 0;
 let adminReturnRequests = [];
 let adminRevenueSummary = null;
 let currentReviewData = null;
@@ -537,6 +540,7 @@ async function logout() {
 function clearSession() {
     stopAdminOrderNotifications();
     stopUserOrderNotifications();
+    stopNotificationEvents();
     if (cartSyncTimer) {
         window.clearTimeout(cartSyncTimer);
         cartSyncTimer = null;
@@ -2304,6 +2308,7 @@ function updateAccountUi() {
     if (!currentUser?.token) {
         stopAdminOrderNotifications();
         stopUserOrderNotifications();
+        stopNotificationEvents();
         if (accountStatus) accountStatus.textContent = contentText('messages.account.loggedOut', 'Chưa đăng nhập');
         if (openAuthButton) openAuthButton.hidden = false;
         if (logoutButton) logoutButton.hidden = true;
@@ -2350,6 +2355,7 @@ function updateAccountUi() {
     if (notificationLoggedOut) notificationLoggedOut.hidden = true;
     if (notificationPanel) notificationPanel.hidden = false;
     if (orderHistoryPanel) orderHistoryPanel.hidden = false;
+    startNotificationEvents();
     const isNotificationPage = window.location.pathname.endsWith('/noti.html');
     if (notificationList && isNotificationPage) {
         loadNotifications({ markRead: true });
@@ -2731,13 +2737,20 @@ function upsertNotification(notification, options = {}) {
     if (notificationList && notificationMessage) {
         renderNotifications();
     }
+    return !exists;
 }
 
 function handleRealtimeNotification(notification) {
     if (!notification) return;
 
-    upsertNotification(notification);
-    showToast(notification.title || 'Co thong bao moi', notification.tone || 'info', 6000);
+    const isNew = upsertNotification(notification);
+    if (isNew) {
+        showToast(notification.title || 'Co thong bao moi', notification.tone || 'info', 6000);
+    }
+
+    if (notificationList && window.location.pathname.endsWith('/noti.html')) {
+        markNotificationsRead();
+    }
 }
 
 function userOrderPayloadToNotification(payload) {
@@ -3424,6 +3437,89 @@ function getReturnRequestStatusLabel(status) {
 function getOrderUpdatedTime(order) {
     const time = new Date(order?.updatedAt || order?.createdAt || 0).getTime();
     return Number.isFinite(time) ? time : 0;
+}
+
+function startNotificationEvents() {
+    stopNotificationEvents();
+    const generation = notificationStreamGeneration;
+    connectNotificationStream(generation);
+}
+
+function stopNotificationEvents() {
+    notificationStreamGeneration += 1;
+
+    if (notificationStreamController) {
+        notificationStreamController.abort();
+        notificationStreamController = null;
+    }
+
+    if (notificationStreamReconnectTimer) {
+        window.clearTimeout(notificationStreamReconnectTimer);
+        notificationStreamReconnectTimer = null;
+    }
+}
+
+async function connectNotificationStream(generation) {
+    if (generation !== notificationStreamGeneration || !currentUser?.token) return;
+
+    const controller = new AbortController();
+    notificationStreamController = controller;
+
+    try {
+        const response = await fetch('/api/notifications/me/events', {
+            headers: authHeaders(false),
+            cache: 'no-store',
+            signal: controller.signal
+        });
+
+        if (!response.ok || !response.body) {
+            throw new Error('Khong mo duoc ket noi thong bao');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (generation === notificationStreamGeneration) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            buffer = consumeNotificationEvents(buffer);
+        }
+    } catch (err) {
+        if (err.name === 'AbortError') return;
+    } finally {
+        if (notificationStreamController === controller) {
+            notificationStreamController = null;
+        }
+    }
+
+    if (generation === notificationStreamGeneration && currentUser?.token) {
+        notificationStreamReconnectTimer = window.setTimeout(() => {
+            connectNotificationStream(generation);
+        }, ADMIN_ORDER_STREAM_RECONNECT_MS);
+    }
+}
+
+function consumeNotificationEvents(buffer) {
+    let boundary = findEventBoundary(buffer);
+
+    while (boundary) {
+        const rawEvent = buffer.slice(0, boundary.index);
+        buffer = buffer.slice(boundary.index + boundary.length);
+        handleNotificationEvent(rawEvent);
+        boundary = findEventBoundary(buffer);
+    }
+
+    return buffer;
+}
+
+function handleNotificationEvent(rawEvent) {
+    const { eventName, payload } = parseServerSentEvent(rawEvent);
+    if (!payload || eventName !== 'notification.created') return;
+
+    handleRealtimeNotification(payload);
 }
 
 async function startUserOrderNotifications() {
