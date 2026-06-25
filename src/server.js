@@ -192,6 +192,33 @@ async function handleApi(req, res, requestUrl) {
     return;
   }
 
+  if (routeUrl.pathname === '/api/cart/me') {
+    const user = getSessionFromRequest(req);
+    if (!user) {
+      sendJson(res, 401, { ok: false, message: 'Chua dang nhap' });
+      return;
+    }
+
+    if (req.method === 'GET') {
+      sendJson(res, 200, { ok: true, items: await getCartByUserId(user.id) });
+      return;
+    }
+
+    if (req.method === 'PUT') {
+      const body = await readRequestBodySafely(req, res);
+      if (!body) return;
+
+      const result = await replaceCartByUserId(user.id, body.items);
+      if (!result.ok) {
+        sendJson(res, result.statusCode, { ok: false, message: result.message });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true, items: result.items });
+      return;
+    }
+  }
+
   const productReviewsMatch = routeUrl.pathname.match(/^\/api\/products\/(\d+)\/reviews$/);
   if (productReviewsMatch) {
     await handleProductReviewsRoute(req, res, Number(productReviewsMatch[1]));
@@ -530,6 +557,14 @@ async function createVietQrPayment(req, res) {
     return;
   }
 
+  await clearCartByUserId(user.id).catch(err => {
+    logger.warn('cart.clear_failed', {
+      requestId: req.requestId,
+      userId: user.id || null,
+      error: err.message
+    });
+  });
+
   const transferContent = normalizeTransferContent(orderId);
   sendJson(res, 201, {
     ok: true,
@@ -646,6 +681,14 @@ async function createCodOrder(req, res) {
     sendJson(res, 400, { ok: false, message: err.message || 'Khong tao duoc don COD' });
     return;
   }
+
+  await clearCartByUserId(user.id).catch(err => {
+    logger.warn('cart.clear_failed', {
+      requestId: req.requestId,
+      userId: user.id || null,
+      error: err.message
+    });
+  });
 
   sendJson(res, 201, {
     ok: true,
@@ -2070,6 +2113,184 @@ async function createOrderFromCart(items) {
     ok: true,
     amount,
     items: orderItems
+  };
+}
+
+async function getCartByUserId(userId) {
+  if (!userId) return [];
+
+  const [rows] = await db.execute(
+    `SELECT
+       ci.product_id,
+       ci.size,
+       ci.color,
+       ci.quantity,
+       p.name,
+       p.category,
+       p.price,
+       p.sale_percent,
+       p.sizes,
+       p.colors,
+       p.stock,
+       p.variant_stock,
+       p.variant_prices,
+       p.total_stock
+     FROM cart_items ci
+     INNER JOIN products p ON p.id = ci.product_id
+     WHERE ci.user_id = ?
+     ORDER BY ci.id ASC`,
+    [Number(userId)]
+  );
+
+  return rows
+    .map(row => normalizeSavedCartRow(row))
+    .filter(Boolean);
+}
+
+async function replaceCartByUserId(userId, items) {
+  const normalizedItems = normalizeCartItemsForStorage(items);
+  if (!normalizedItems.ok) {
+    return normalizedItems;
+  }
+
+  const cart = normalizedItems.items.length
+    ? await createOrderFromCart(normalizedItems.items)
+    : { ok: true, items: [] };
+
+  if (!cart.ok) {
+    return { ok: false, statusCode: 400, message: cart.message };
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.execute('DELETE FROM cart_items WHERE user_id = ?', [Number(userId)]);
+
+    for (const item of cart.items) {
+      await connection.execute(
+        `INSERT INTO cart_items (user_id, product_id, size, color, quantity)
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          Number(userId),
+          item.productId,
+          item.size || null,
+          item.color || null,
+          item.quantity
+        ]
+      );
+    }
+
+    await connection.commit();
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+
+  return {
+    ok: true,
+    items: await getCartByUserId(userId)
+  };
+}
+
+async function clearCartByUserId(userId) {
+  if (!userId) return;
+  await db.execute('DELETE FROM cart_items WHERE user_id = ?', [Number(userId)]);
+}
+
+function normalizeCartItemsForStorage(items) {
+  if (!Array.isArray(items)) {
+    return { ok: false, statusCode: 400, message: 'Gio hang khong hop le' };
+  }
+
+  const itemsByKey = new Map();
+
+  for (const item of items) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return { ok: false, statusCode: 400, message: 'San pham trong gio hang khong hop le' };
+    }
+
+    const productId = Number(item.productId || item.id);
+    const quantity = Number(item.quantity || item.qty);
+    const size = item.size === null || item.size === undefined ? '' : String(item.size).trim();
+    const color = item.color === null || item.color === undefined ? '' : String(item.color).trim();
+
+    if (!Number.isInteger(productId) || productId <= 0) {
+      return { ok: false, statusCode: 400, message: 'Ma san pham khong hop le' };
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      return { ok: false, statusCode: 400, message: 'So luong san pham khong hop le' };
+    }
+
+    const key = `${productId}:${color || '__no_color__'}:${size || '__no_size__'}`;
+    const existing = itemsByKey.get(key);
+    if (existing) {
+      existing.quantity += quantity;
+    } else {
+      itemsByKey.set(key, {
+        productId,
+        size,
+        color,
+        quantity
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    items: Array.from(itemsByKey.values())
+  };
+}
+
+function normalizeSavedCartRow(row) {
+  const product = {
+    id: row.product_id,
+    name: row.name,
+    category: row.category,
+    price: Number(row.price) || 0,
+    salePercent: Number(row.sale_percent) || 0,
+    sizes: parseJson(row.sizes, []),
+    colors: parseJson(row.colors, []),
+    stock: parseJson(row.stock, {}),
+    variantStock: parseJson(row.variant_stock, {}),
+    variantPrices: parseJson(row.variant_prices, {}),
+    totalStock: row.total_stock
+  };
+
+  const size = row.size || '';
+  const color = row.color || '';
+  const quantity = Number(row.quantity) || 0;
+  if (!Number.isInteger(quantity) || quantity <= 0) return null;
+
+  const colors = getProductColors(product);
+  const sizes = getProductSizes(product);
+  let maxQuantity = quantity;
+
+  if (colors.length) {
+    if (!color || !colors.includes(color)) return null;
+    if (requiresProductSize(product)) {
+      if (!size || !sizes.includes(size)) return null;
+    }
+    maxQuantity = getProductVariantStock(product, color, size);
+  } else if (requiresProductSize(product)) {
+    if (!size || !sizes.includes(size)) return null;
+    maxQuantity = getProductVariantStock(product, '', size);
+  } else {
+    const totalStock = getProductTotalStock(product);
+    maxQuantity = totalStock === null ? quantity : totalStock;
+  }
+
+  if (maxQuantity !== null && maxQuantity <= 0) return null;
+
+  return {
+    productId: Number(row.product_id),
+    name: row.name,
+    size: size || null,
+    color: color || null,
+    quantity: Math.min(quantity, maxQuantity),
+    price: getProductVariantSalePrice(product, color, size)
   };
 }
 
