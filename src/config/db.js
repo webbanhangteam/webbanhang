@@ -84,6 +84,14 @@ async function initDatabase() {
       customer_address VARCHAR(500) NOT NULL DEFAULT '',
       gateway_response JSON NULL,
       gateway_payload JSON NULL,
+      refund_status VARCHAR(40) NOT NULL DEFAULT 'NONE',
+      refund_reference VARCHAR(120) NULL,
+      refund_bank_bin VARCHAR(20) NULL,
+      refund_account_number VARCHAR(80) NULL,
+      refund_account_name VARCHAR(160) NULL,
+      refund_payload JSON NULL,
+      refund_requested_at TIMESTAMP NULL DEFAULT NULL,
+      refund_processed_at TIMESTAMP NULL DEFAULT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -184,6 +192,54 @@ async function initDatabase() {
   );
 
   await ensureColumnExists(
+    'orders',
+    'refund_status',
+    'ALTER TABLE orders ADD COLUMN refund_status VARCHAR(40) NOT NULL DEFAULT \'NONE\' AFTER gateway_payload'
+  );
+
+  await ensureColumnExists(
+    'orders',
+    'refund_reference',
+    'ALTER TABLE orders ADD COLUMN refund_reference VARCHAR(120) NULL AFTER refund_status'
+  );
+
+  await ensureColumnExists(
+    'orders',
+    'refund_bank_bin',
+    'ALTER TABLE orders ADD COLUMN refund_bank_bin VARCHAR(20) NULL AFTER refund_reference'
+  );
+
+  await ensureColumnExists(
+    'orders',
+    'refund_account_number',
+    'ALTER TABLE orders ADD COLUMN refund_account_number VARCHAR(80) NULL AFTER refund_bank_bin'
+  );
+
+  await ensureColumnExists(
+    'orders',
+    'refund_account_name',
+    'ALTER TABLE orders ADD COLUMN refund_account_name VARCHAR(160) NULL AFTER refund_account_number'
+  );
+
+  await ensureColumnExists(
+    'orders',
+    'refund_payload',
+    'ALTER TABLE orders ADD COLUMN refund_payload JSON NULL AFTER refund_account_name'
+  );
+
+  await ensureColumnExists(
+    'orders',
+    'refund_requested_at',
+    'ALTER TABLE orders ADD COLUMN refund_requested_at TIMESTAMP NULL DEFAULT NULL AFTER refund_payload'
+  );
+
+  await ensureColumnExists(
+    'orders',
+    'refund_processed_at',
+    'ALTER TABLE orders ADD COLUMN refund_processed_at TIMESTAMP NULL DEFAULT NULL AFTER refund_requested_at'
+  );
+
+  await ensureColumnExists(
     'products',
     'total_stock',
     'ALTER TABLE products ADD COLUMN total_stock INT UNSIGNED NULL AFTER stock'
@@ -242,6 +298,7 @@ async function initDatabase() {
   await ensureIndexExists('products', 'idx_products_section', 'ALTER TABLE products ADD INDEX idx_products_section (section)');
   await ensureIndexExists('orders', 'idx_orders_status', 'ALTER TABLE orders ADD INDEX idx_orders_status (status)');
   await ensureIndexExists('orders', 'idx_orders_provider', 'ALTER TABLE orders ADD INDEX idx_orders_provider (provider)');
+  await ensureIndexExists('orders', 'idx_orders_refund_status', 'ALTER TABLE orders ADD INDEX idx_orders_refund_status (refund_status)');
   await ensureIndexExists(
     'orders',
     'idx_orders_fulfillment_status',

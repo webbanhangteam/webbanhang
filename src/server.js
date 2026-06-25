@@ -27,6 +27,7 @@ const adminOrderEventClients = new Set();
 const userOrderEventClients = new Set();
 const userDataFile = path.join(root, 'data', 'DATA.txt');
 const fulfillmentStatuses = ['ORDERED', 'PREPARING', 'SHIPPING', 'DELIVERED', 'CANCELLED'];
+const refundStatuses = ['NONE', 'PENDING', 'PROCESSING', 'REFUNDED', 'FAILED'];
 const returnRequestTypes = ['return', 'exchange'];
 const returnRequestStatuses = ['PENDING', 'APPROVED', 'REJECTED', 'COMPLETED'];
 const returnWindowMs = 7 * 24 * 60 * 60 * 1000;
@@ -98,6 +99,7 @@ const payOsConfig = {
   clientId: String(process.env.PAYOS_CLIENT_ID || '').trim(),
   apiKey: String(process.env.PAYOS_API_KEY || '').trim(),
   checksumKey: String(process.env.PAYOS_CHECKSUM_KEY || '').trim(),
+  payoutChecksumKey: String(process.env.PAYOS_PAYOUT_CHECKSUM_KEY || process.env.PAYOS_CHECKSUM_KEY || '').trim(),
   partnerCode: String(process.env.PAYOS_PARTNER_CODE || '').trim(),
   apiBaseUrl: String(process.env.PAYOS_API_BASE_URL || 'https://api-merchant.payos.vn').replace(/\/+$/, ''),
   returnUrl: String(process.env.PAYOS_RETURN_URL || `${publicBaseUrl}/api/payments/payos/return`).trim(),
@@ -446,6 +448,26 @@ async function handleApi(req, res, requestUrl) {
     }
 
     notifyOrderFulfillmentChanged(result.order, req.requestId, actor);
+    sendJson(res, 200, { ok: true, order: result.order });
+    return;
+  }
+
+  const refundOrderMatch = routeUrl.pathname.match(/^\/api\/orders\/(\d+)\/refund$/);
+  if (req.method === 'POST' && refundOrderMatch) {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    const result = await refundCancelledPaidOrder(Number(refundOrderMatch[1]), {
+      requestId: req.requestId
+    });
+    if (!result.ok) {
+      sendJson(res, result.statusCode, { ok: false, message: result.message });
+      return;
+    }
+
+    notifyOrderRefundStatusChanged(result.order, req.requestId, 'admin');
     sendJson(res, 200, { ok: true, order: result.order });
     return;
   }
@@ -1955,6 +1977,10 @@ function getMissingPayOsConfig() {
   return ['clientId', 'apiKey', 'checksumKey'].filter(key => !payOsConfig[key]);
 }
 
+function getMissingPayOsPayoutConfig() {
+  return ['clientId', 'apiKey', 'payoutChecksumKey'].filter(key => !payOsConfig[key]);
+}
+
 function buildPayOsCreatePaymentPayload({ orderId, amount, items, user }) {
   const orderCode = Number(orderId);
   const returnUrl = payOsConfig.returnUrl;
@@ -1996,10 +2022,10 @@ function normalizePayOsItems(items) {
   }));
 }
 
-function buildPayOsSignature(data) {
+function buildPayOsSignature(data, checksumKey = payOsConfig.checksumKey) {
   const query = convertPayOsObjectToQueryString(sortPayOsObject(data || {}));
   return crypto
-    .createHmac('sha256', payOsConfig.checksumKey)
+    .createHmac('sha256', checksumKey)
     .update(query)
     .digest('hex');
 }
@@ -2043,7 +2069,8 @@ async function requestPayOs(pathname, options = {}) {
   const url = `${payOsConfig.apiBaseUrl}${pathname}`;
   const headers = {
     'x-client-id': payOsConfig.clientId,
-    'x-api-key': payOsConfig.apiKey
+    'x-api-key': payOsConfig.apiKey,
+    ...(options.headers || {})
   };
 
   if (payOsConfig.partnerCode) {
@@ -2078,6 +2105,18 @@ async function requestPayOs(pathname, options = {}) {
   }
 
   return payload;
+}
+
+async function requestPayOsPayout(body, idempotencyKey) {
+  const signature = buildPayOsSignature(body, payOsConfig.payoutChecksumKey);
+  return requestPayOs('/v1/payouts', {
+    method: 'POST',
+    headers: {
+      'x-idempotency-key': idempotencyKey,
+      'x-signature': signature
+    },
+    body
+  });
 }
 
 async function generatePayOsOrderId() {
@@ -3092,7 +3131,7 @@ async function markPayOsOrderPaid(paymentData, context = {}) {
   try {
     await connection.beginTransaction();
     const [rows] = await connection.execute(
-      `SELECT id, order_code, provider, status, amount, stock_applied, fulfillment_status
+      `SELECT id, order_code, provider, status, amount, stock_applied, fulfillment_status, refund_status
        FROM orders
        WHERE order_code = ?
        FOR UPDATE`,
@@ -3126,10 +3165,22 @@ async function markPayOsOrderPaid(paymentData, context = {}) {
     };
 
     if (normalizeFulfillmentStatus(order.fulfillment_status) === 'CANCELLED') {
-      if (String(order.status || '').toUpperCase() !== 'PAID_AFTER_CANCEL') {
+      if (
+        String(order.status || '').toUpperCase() !== 'PAID_AFTER_CANCEL' ||
+        shouldMarkRefundPending('PAID_AFTER_CANCEL', order.refund_status)
+      ) {
         await connection.execute(
-          'UPDATE orders SET status = ?, gateway_payload = ? WHERE id = ?',
-          ['PAID_AFTER_CANCEL', JSON.stringify(gatewayPayload), orderDbId]
+          `UPDATE orders
+           SET status = ?, gateway_payload = ?, refund_status = ?
+           WHERE id = ?`,
+          [
+            'PAID_AFTER_CANCEL',
+            JSON.stringify(gatewayPayload),
+            shouldMarkRefundPending('PAID_AFTER_CANCEL', order.refund_status)
+              ? 'PENDING'
+              : normalizeRefundStatus(order.refund_status),
+            orderDbId
+          ]
         );
         changed = true;
       }
@@ -3204,7 +3255,7 @@ async function markVietQrOrderPaidFromBankTransaction(transaction, context = {})
   try {
     await connection.beginTransaction();
     const [rows] = await connection.execute(
-      `SELECT id, order_code, provider, status, amount, stock_applied, fulfillment_status
+      `SELECT id, order_code, provider, status, amount, stock_applied, fulfillment_status, refund_status
        FROM orders
        WHERE order_code = ?
        FOR UPDATE`,
@@ -3239,10 +3290,22 @@ async function markVietQrOrderPaidFromBankTransaction(transaction, context = {})
     };
 
     if (normalizeFulfillmentStatus(order.fulfillment_status) === 'CANCELLED') {
-      if (String(order.status || '').toUpperCase() !== 'PAID_AFTER_CANCEL') {
+      if (
+        String(order.status || '').toUpperCase() !== 'PAID_AFTER_CANCEL' ||
+        shouldMarkRefundPending('PAID_AFTER_CANCEL', order.refund_status)
+      ) {
         await connection.execute(
-          'UPDATE orders SET status = ?, gateway_payload = ? WHERE id = ?',
-          ['PAID_AFTER_CANCEL', JSON.stringify(gatewayPayload), orderDbId]
+          `UPDATE orders
+           SET status = ?, gateway_payload = ?, refund_status = ?
+           WHERE id = ?`,
+          [
+            'PAID_AFTER_CANCEL',
+            JSON.stringify(gatewayPayload),
+            shouldMarkRefundPending('PAID_AFTER_CANCEL', order.refund_status)
+              ? 'PENDING'
+              : normalizeRefundStatus(order.refund_status),
+            orderDbId
+          ]
         );
         changed = true;
       }
@@ -3362,7 +3425,7 @@ async function cancelOrder(orderDbId, userId, isAdmin) {
   try {
     await connection.beginTransaction();
     const [rows] = await connection.execute(
-      `SELECT id, user_id, fulfillment_status
+      `SELECT id, user_id, status, fulfillment_status, refund_status
        FROM orders
        WHERE id = ?
        FOR UPDATE`,
@@ -3391,11 +3454,16 @@ async function cancelOrder(orderDbId, userId, isAdmin) {
     }
 
     await restoreOrderStockByDbId(connection, Number(orderDbId));
+    const nextRefundStatus = shouldMarkRefundPending(rows[0].status, rows[0].refund_status)
+      ? 'PENDING'
+      : normalizeRefundStatus(rows[0].refund_status);
     await connection.execute(
       `UPDATE orders
-       SET fulfillment_status = 'CANCELLED', received_at = NULL
+       SET fulfillment_status = 'CANCELLED',
+           received_at = NULL,
+           refund_status = ?
        WHERE id = ?`,
-      [Number(orderDbId)]
+      [nextRefundStatus, Number(orderDbId)]
     );
     await connection.commit();
   } catch (err) {
@@ -3407,6 +3475,251 @@ async function cancelOrder(orderDbId, userId, isAdmin) {
 
   const orders = await fetchOrders('WHERE o.id = ?', [Number(orderDbId)]);
   return { ok: true, order: orders[0] };
+}
+
+async function refundCancelledPaidOrder(orderDbId, context = {}) {
+  const missing = getMissingPayOsPayoutConfig();
+  if (missing.length) {
+    return {
+      ok: false,
+      statusCode: 500,
+      message: `Thieu cau hinh payOS payout: ${missing.join(', ')}`
+    };
+  }
+
+  const prepared = await prepareRefundPayout(Number(orderDbId), context);
+  if (!prepared.ok) return prepared;
+
+  let payoutResponse;
+  try {
+    payoutResponse = await requestPayOsPayout(prepared.payoutPayload, prepared.idempotencyKey);
+  } catch (err) {
+    await updateRefundFailure(Number(orderDbId), {
+      source: 'payos_payout',
+      referenceId: prepared.referenceId,
+      error: err.message
+    });
+    logger.error('refund.payos_payout_failed', {
+      requestId: context.requestId || null,
+      orderDbId: Number(orderDbId),
+      orderId: prepared.orderCode,
+      referenceId: prepared.referenceId,
+      error: err
+    });
+    return {
+      ok: false,
+      statusCode: 502,
+      message: 'Khong tao duoc lenh hoan tien payOS'
+    };
+  }
+
+  const refundStatus = normalizePayOsPayoutRefundStatus(payoutResponse);
+  await db.execute(
+    `UPDATE orders
+     SET refund_status = ?,
+         refund_payload = ?,
+         refund_processed_at = CASE WHEN ? = 'REFUNDED' THEN CURRENT_TIMESTAMP ELSE refund_processed_at END
+     WHERE id = ?`,
+    [
+      refundStatus,
+      JSON.stringify({
+        source: 'payos_payout',
+        referenceId: prepared.referenceId,
+        response: payoutResponse
+      }),
+      refundStatus,
+      Number(orderDbId)
+    ]
+  );
+
+  logger.info('refund.payos_payout_created', {
+    requestId: context.requestId || null,
+    orderDbId: Number(orderDbId),
+    orderId: prepared.orderCode,
+    referenceId: prepared.referenceId,
+    refundStatus
+  });
+
+  const orders = await fetchOrders('WHERE o.id = ?', [Number(orderDbId)]);
+  return { ok: true, order: orders[0] };
+}
+
+async function prepareRefundPayout(orderDbId, context = {}) {
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      `SELECT id, order_code, provider, status, fulfillment_status, amount,
+              gateway_payload, gateway_response, refund_status, refund_reference
+       FROM orders
+       WHERE id = ?
+       FOR UPDATE`,
+      [Number(orderDbId)]
+    );
+
+    if (!rows.length) {
+      await connection.rollback();
+      return { ok: false, statusCode: 404, message: 'Khong tim thay don hang' };
+    }
+
+    const order = rows[0];
+    if (normalizeFulfillmentStatus(order.fulfillment_status) !== 'CANCELLED') {
+      await connection.rollback();
+      return { ok: false, statusCode: 409, message: 'Chi hoan tien cho don da huy' };
+    }
+
+    if (!isPaidOrderStatus(order.status)) {
+      await connection.rollback();
+      return { ok: false, statusCode: 409, message: 'Don hang chua thanh toan nen khong can hoan tien' };
+    }
+
+    const refundStatus = normalizeRefundStatus(order.refund_status);
+    if (refundStatus === 'REFUNDED') {
+      await connection.rollback();
+      return { ok: false, statusCode: 409, message: 'Don hang da hoan tien' };
+    }
+    if (refundStatus === 'PROCESSING') {
+      await connection.rollback();
+      return { ok: false, statusCode: 409, message: 'Lenh hoan tien dang xu ly' };
+    }
+
+    const destination = getRefundDestinationFromGatewayPayload({
+      provider: order.provider,
+      gatewayPayload: parseJson(order.gateway_payload, null),
+      gatewayResponse: parseJson(order.gateway_response, null)
+    });
+
+    if (!destination.ok) {
+      await connection.rollback();
+      return {
+        ok: false,
+        statusCode: 409,
+        message: destination.message
+      };
+    }
+
+    const referenceId = order.refund_reference ||
+      `refund_${Number(order.id)}_${Date.now()}`;
+    const payoutPayload = {
+      referenceId,
+      amount: Math.max(0, Math.round(Number(order.amount) || 0)),
+      description: `Hoan tien don ${order.order_code}`.slice(0, 120),
+      toBin: destination.bankBin,
+      toAccountNumber: destination.accountNumber,
+      category: ['refund']
+    };
+
+    await connection.execute(
+      `UPDATE orders
+       SET refund_status = 'PROCESSING',
+           refund_reference = ?,
+           refund_bank_bin = ?,
+           refund_account_number = ?,
+           refund_account_name = ?,
+           refund_payload = ?,
+           refund_requested_at = COALESCE(refund_requested_at, CURRENT_TIMESTAMP)
+       WHERE id = ?`,
+      [
+        referenceId,
+        destination.bankBin,
+        destination.accountNumber,
+        destination.accountName || null,
+        JSON.stringify({
+          source: 'payos_payout_prepare',
+          requestId: context.requestId || null,
+          payoutPayload
+        }),
+        Number(orderDbId)
+      ]
+    );
+    await connection.commit();
+
+    return {
+      ok: true,
+      orderCode: order.order_code,
+      referenceId,
+      idempotencyKey: referenceId,
+      payoutPayload
+    };
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
+}
+
+function getRefundDestinationFromGatewayPayload({ provider, gatewayPayload, gatewayResponse }) {
+  const sources = [
+    gatewayPayload?.paymentData,
+    gatewayPayload?.payload?.data,
+    gatewayPayload?.payload,
+    gatewayPayload?.transaction,
+    gatewayPayload?.transaction?.raw,
+    gatewayPayload,
+    gatewayResponse?.response?.data,
+    gatewayResponse?.data,
+    gatewayResponse
+  ].filter(Boolean);
+
+  const bankBin = firstString(...sources.flatMap(source => [
+    source.counterAccountBankId,
+    source.counterAccountBankBin,
+    source.counterAccountBin,
+    source.fromBin,
+    source.fromBankBin,
+    source.bankBin,
+    source.bin
+  ])).replace(/\D/g, '');
+  const accountNumber = normalizeAccountIdentifier(firstString(...sources.flatMap(source => [
+    source.counterAccountNumber,
+    source.fromAccountNumber,
+    source.sourceAccountNumber,
+    source.accountNumber,
+    source.accountNo
+  ])));
+  const accountName = firstString(...sources.flatMap(source => [
+    source.counterAccountName,
+    source.fromAccountName,
+    source.sourceAccountName,
+    source.accountName
+  ]));
+
+  if (!bankBin || !accountNumber) {
+    return {
+      ok: false,
+      message: String(provider || '').toLowerCase() === 'payos'
+        ? 'Thieu thong tin tai khoan nguoi thanh toan tu webhook payOS'
+        : 'Thieu thong tin tai khoan nguoi chuyen khoan de hoan tien tu dong'
+    };
+  }
+
+  return { ok: true, bankBin, accountNumber, accountName };
+}
+
+function normalizePayOsPayoutRefundStatus(response) {
+  if (response?.code && response.code !== '00') return 'FAILED';
+
+  const states = [
+    response?.data?.approvalState,
+    ...(Array.isArray(response?.data?.transactions)
+      ? response.data.transactions.map(transaction => transaction?.state)
+      : Object.values(response?.data?.transactions || {}).map(transaction => transaction?.state))
+  ].map(value => String(value || '').toUpperCase()).filter(Boolean);
+
+  if (states.some(state => ['SUCCEEDED', 'SUCCESS', 'COMPLETED'].includes(state))) return 'REFUNDED';
+  if (states.some(state => ['FAILED', 'REJECTED', 'CANCELED', 'CANCELLED'].includes(state))) return 'FAILED';
+  return 'PROCESSING';
+}
+
+async function updateRefundFailure(orderDbId, payload) {
+  await db.execute(
+    `UPDATE orders
+     SET refund_status = 'FAILED',
+         refund_payload = ?
+     WHERE id = ?`,
+    [JSON.stringify(payload || {}), Number(orderDbId)]
+  );
 }
 
 async function confirmOrderReceived(orderDbId, userId) {
@@ -3461,6 +3774,9 @@ function notifyOrderFulfillmentChanged(order, requestId, actor) {
     id: order.id,
     orderId: order.orderId,
     fulfillmentStatus: order.fulfillmentStatus,
+    status: order.status,
+    refundStatus: order.refundStatus,
+    refund: order.refund,
     receivedAt: order.receivedAt,
     updatedAt: order.updatedAt,
     actor
@@ -3499,9 +3815,46 @@ function notifyOrderPaymentStatusChanged(order, requestId, actor) {
   });
 }
 
+function notifyOrderRefundStatusChanged(order, requestId, actor) {
+  const payload = {
+    id: order.id,
+    orderId: order.orderId,
+    userId: order.userId,
+    status: order.status,
+    refundStatus: order.refundStatus,
+    refund: order.refund,
+    updatedAt: order.updatedAt,
+    actor
+  };
+
+  broadcastAdminOrderEvent('order.refund_status_changed', payload);
+  broadcastUserOrderEvent(order.userId, 'order.refund_status_changed', payload);
+  logger.info('order.refund_status_changed', {
+    requestId,
+    orderId: order.orderId,
+    orderDbId: order.id,
+    refundStatus: order.refundStatus,
+    actor
+  });
+}
+
 function normalizeFulfillmentStatus(value) {
   const normalized = String(value || '').trim().toUpperCase();
   return fulfillmentStatuses.includes(normalized) ? normalized : null;
+}
+
+function normalizeRefundStatus(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return refundStatuses.includes(normalized) ? normalized : 'NONE';
+}
+
+function isPaidOrderStatus(value) {
+  return ['PAID', 'PAID_AFTER_CANCEL'].includes(String(value || '').trim().toUpperCase());
+}
+
+function shouldMarkRefundPending(status, refundStatus) {
+  if (!isPaidOrderStatus(status)) return false;
+  return ['NONE', 'FAILED'].includes(normalizeRefundStatus(refundStatus));
 }
 
 async function fetchOrders(whereClause, params) {
@@ -3524,6 +3877,14 @@ async function fetchOrders(whereClause, params) {
        o.customer_address,
        o.gateway_response,
        o.gateway_payload,
+       o.refund_status,
+       o.refund_reference,
+       o.refund_bank_bin,
+       o.refund_account_number,
+       o.refund_account_name,
+       o.refund_payload,
+       o.refund_requested_at,
+       o.refund_processed_at,
        o.created_at,
        o.updated_at,
        rr.id AS return_request_id,
@@ -3579,6 +3940,17 @@ async function fetchOrders(whereClause, params) {
         } : null,
         amount: Number(row.amount),
         description: row.description || '',
+        refundStatus: normalizeRefundStatus(row.refund_status),
+        refund: {
+          status: normalizeRefundStatus(row.refund_status),
+          reference: row.refund_reference || '',
+          bankBin: row.refund_bank_bin || '',
+          accountNumber: row.refund_account_number || '',
+          accountName: row.refund_account_name || '',
+          payload: parseJson(row.refund_payload, null),
+          requestedAt: row.refund_requested_at,
+          processedAt: row.refund_processed_at
+        },
         customer: {
           username: row.customer_username || '',
           fullName: row.customer_name || '',

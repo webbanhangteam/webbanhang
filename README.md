@@ -176,6 +176,7 @@ Neu dung payOS:
 PAYOS_CLIENT_ID=
 PAYOS_API_KEY=
 PAYOS_CHECKSUM_KEY=
+PAYOS_PAYOUT_CHECKSUM_KEY=
 PAYOS_RETURN_URL=https://your-domain.com/api/payments/payos/return
 PAYOS_CANCEL_URL=https://your-domain.com/api/payments/payos/return
 PAYOS_EXPIRE_MINUTES=30
@@ -332,6 +333,7 @@ GET /api/orders       Admin token
 GET /api/orders/me/events              Dang nhap, realtime trang thai don
 PUT /api/orders/:id/fulfillment        Admin token
 POST /api/orders/:id/received           Chu don hang
+POST /api/orders/:id/refund             Admin token
 ```
 
 ## Database
@@ -381,6 +383,15 @@ Quy trinh thanh toan payOS:
 7. Frontend nhan realtime event/polling va hien thong bao thanh toan thanh cong.
 
 `GET /api/payments/payos/return` chi dung de dieu huong nguoi dung ve `/profile.html` va hien trang thai tren UI; webhook van la nguon cap nhat thanh toan chinh.
+
+Khi don da thanh toan bi huy, server dat `refund_status=PENDING`. Admin bam
+`Xac nhan hoan tien` trong bang don hang de tao lenh chi payOS (`POST /v1/payouts`).
+Neu payOS tra ve lenh dang xu ly, don se co `refund_status=PROCESSING`; neu lenh thanh
+cong, don co `refund_status=REFUNDED`.
+
+Hoan tien tu dong can webhook thanh toan co thong tin tai khoan nguoi chuyen
+(`counterAccountBankId` va `counterAccountNumber`). Neu thieu du lieu nay, admin can
+hoan tien thu cong hoac bo sung thong tin tai khoan nhan hoan tien.
 
 ### COD
 

@@ -654,6 +654,12 @@ function handleDocumentClick(event) {
         return;
     }
 
+    const refundOrderButton = event.target.closest('[data-order-refund]');
+    if (refundOrderButton) {
+        refundOrderFromUi(Number(refundOrderButton.dataset.orderRefund));
+        return;
+    }
+
     const returnStatusButton = event.target.closest('[data-return-status]');
     if (returnStatusButton) {
         updateAdminReturnRequest(
@@ -2765,6 +2771,7 @@ function renderOrderHistory(orders) {
                 ${order.returnRequest.adminNote ? `<small>${escapeHtml(order.returnRequest.adminNote)}</small>` : ''}
                </div>`
             : '';
+        const refundState = renderOrderRefundState(order);
 
         return `
             <article class="order-history-card">
@@ -2787,6 +2794,7 @@ function renderOrderHistory(orders) {
                 ${payOsRestoreButton}
                 ${returnButton}
                 ${returnState}
+                ${refundState}
             </article>
         `;
     }).join('');
@@ -3305,13 +3313,32 @@ function handleUserOrderEvent(rawEvent) {
         return;
     }
 
+    if (eventName === 'order.refund_status_changed') {
+        userOrders = userOrders.map((order) => {
+            if (Number(order.id) !== Number(payload.id)) return order;
+            return {
+                ...order,
+                status: payload.status || order.status,
+                refundStatus: payload.refundStatus,
+                refund: payload.refund || order.refund,
+                updatedAt: payload.updatedAt || order.updatedAt
+            };
+        });
+        renderOrderHistory(userOrders);
+        showToast(getRefundSuccessToast(payload), 'info', 6000);
+        return;
+    }
+
     if (eventName !== 'order.fulfillment_changed') return;
 
     userOrders = userOrders.map((order) => {
         if (Number(order.id) !== Number(payload.id)) return order;
         return {
             ...order,
+            status: payload.status || order.status,
             fulfillmentStatus: payload.fulfillmentStatus,
+            refundStatus: payload.refundStatus || order.refundStatus,
+            refund: payload.refund || order.refund,
             receivedAt: payload.receivedAt || null,
             updatedAt: payload.updatedAt || order.updatedAt
         };
@@ -3407,6 +3434,40 @@ async function cancelOrderFromUi(orderId, actor) {
         renderProducts();
         renderProductDetail();
         showToast('Đã hủy đơn hàng và hoàn lại tồn kho.', 'success');
+    } catch {
+        showToast('Không kết nối được server.', 'error');
+        if (button) button.disabled = false;
+    }
+}
+
+async function refundOrderFromUi(orderId) {
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !orderId) return;
+    if (!confirm('Xác nhận tạo lệnh hoàn tiền tự động cho đơn này?')) return;
+
+    const button = document.querySelector(`[data-order-refund="${orderId}"]`);
+    if (button) button.disabled = true;
+
+    try {
+        const response = await fetch(`/api/orders/${orderId}/refund`, {
+            method: 'POST',
+            headers: adminHeaders()
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.order) {
+            showToast(data.message || 'Không tạo được lệnh hoàn tiền.', 'error', 6000);
+            if (button) button.disabled = false;
+            await loadAdminOrders();
+            return;
+        }
+
+        adminOrders = adminOrders.map((order) => {
+            return Number(order.id) === Number(orderId) ? data.order : order;
+        });
+        renderAdminOrders(adminOrders);
+        renderAdminStats(adminOrders);
+        loadAdminRevenueSummary();
+        showToast(getRefundSuccessToast(data.order), 'success', 6000);
     } catch {
         showToast('Không kết nối được server.', 'error');
         if (button) button.disabled = false;
@@ -3767,7 +3828,10 @@ function handleAdminOrderEvent(rawEvent) {
             if (Number(order.id) !== Number(payload.id)) return order;
             return {
                 ...order,
+                status: payload.status || order.status,
                 fulfillmentStatus: payload.fulfillmentStatus,
+                refundStatus: payload.refundStatus || order.refundStatus,
+                refund: payload.refund || order.refund,
                 receivedAt: payload.receivedAt || null,
                 updatedAt: payload.updatedAt || order.updatedAt
             };
@@ -3777,6 +3841,24 @@ function handleAdminOrderEvent(rawEvent) {
         if (normalizeOrderFulfillmentStatus(payload.fulfillmentStatus) === 'DELIVERED') {
             upsertNotification(adminDeliveredPayloadToNotification(payload));
         }
+        return;
+    }
+
+    if (eventName === 'order.refund_status_changed') {
+        adminOrders = adminOrders.map((order) => {
+            if (Number(order.id) !== Number(payload.id)) return order;
+            return {
+                ...order,
+                status: payload.status || order.status,
+                refundStatus: payload.refundStatus,
+                refund: payload.refund || order.refund,
+                updatedAt: payload.updatedAt || order.updatedAt
+            };
+        });
+        renderAdminOrders(adminOrders);
+        renderAdminStats(adminOrders);
+        loadAdminRevenueSummary();
+        showToast(getRefundSuccessToast(payload), 'info', 6000);
         return;
     }
 
@@ -3930,6 +4012,7 @@ function renderAdminOrders(orders) {
         const fulfillmentStatus = normalizeOrderFulfillmentStatus(order.fulfillmentStatus);
         const fulfillmentAction = getAdminFulfillmentAction(order.id, fulfillmentStatus);
         const paymentStatusLabel = getOrderPaymentLabel(order.status, order.provider);
+        const refundAction = getAdminRefundAction(order);
 
         return `
             <tr class="${order.isNew ? 'admin-order-new' : ''}">
@@ -3954,6 +4037,7 @@ function renderAdminOrders(orders) {
                     <div class="admin-fulfillment">
                         <span class="admin-fulfillment-status">${escapeHtml(getOrderFulfillmentLabel(fulfillmentStatus))}</span>
                         ${fulfillmentAction}
+                        ${refundAction}
                     </div>
                 </td>
                 <td><strong>${currency.format(Number(order.amount) || 0)}</strong></td>
@@ -3995,6 +4079,82 @@ function getAdminFulfillmentAction(orderId, status) {
     }
 
     return '<small><i class="bi bi-check-circle-fill"></i> Đơn đã hoàn tất</small>';
+}
+
+function getAdminRefundAction(order) {
+    const refundStatus = normalizeOrderRefundStatus(order?.refundStatus || order?.refund?.status);
+    if (!isRefundableCanceledPaidOrder(order) && refundStatus === 'NONE') return '';
+
+    if (['PENDING', 'FAILED'].includes(refundStatus)) {
+        const label = refundStatus === 'FAILED' ? 'Thử hoàn tiền lại' : 'Xác nhận hoàn tiền';
+        return `
+            <div class="admin-order-actions">
+                <button type="button" data-order-refund="${Number(order.id)}">
+                    <i class="bi bi-arrow-counterclockwise"></i> ${label}
+                </button>
+            </div>
+            ${renderOrderRefundState(order)}
+        `;
+    }
+
+    return renderOrderRefundState(order);
+}
+
+function renderOrderRefundState(order) {
+    const refundStatus = normalizeOrderRefundStatus(order?.refundStatus || order?.refund?.status);
+    if (refundStatus === 'NONE') return '';
+
+    const tone = refundStatus === 'REFUNDED'
+        ? 'success'
+        : refundStatus === 'FAILED'
+            ? 'danger'
+            : 'warning';
+    const reference = order?.refund?.reference
+        ? `<small>${escapeHtml(order.refund.reference)}</small>`
+        : '';
+
+    return `
+        <div class="order-return-state notification-${tone}">
+            <strong>${escapeHtml(getOrderRefundLabel(refundStatus))}</strong>
+            ${reference}
+        </div>
+    `;
+}
+
+function isRefundableCanceledPaidOrder(order) {
+    if (normalizeOrderFulfillmentStatus(order?.fulfillmentStatus) !== CANCELLED_FULFILLMENT_STATUS) return false;
+    if (!isPaidOrderStatus(order?.status)) return false;
+
+    const refundStatus = normalizeOrderRefundStatus(order?.refundStatus || order?.refund?.status);
+    return ['NONE', 'PENDING', 'FAILED'].includes(refundStatus);
+}
+
+function normalizeOrderRefundStatus(value) {
+    const normalized = String(value || '').toUpperCase();
+    return ['NONE', 'PENDING', 'PROCESSING', 'REFUNDED', 'FAILED'].includes(normalized)
+        ? normalized
+        : 'NONE';
+}
+
+function isPaidOrderStatus(status) {
+    return ['PAID', 'PAID_AFTER_CANCEL'].includes(String(status || '').toUpperCase());
+}
+
+function getOrderRefundLabel(status) {
+    const labels = {
+        PENDING: 'Chờ admin xác nhận hoàn tiền',
+        PROCESSING: 'Đang hoàn tiền tự động',
+        REFUNDED: 'Đã hoàn tiền',
+        FAILED: 'Hoàn tiền thất bại'
+    };
+    return labels[normalizeOrderRefundStatus(status)] || '';
+}
+
+function getRefundSuccessToast(order) {
+    const status = normalizeOrderRefundStatus(order?.refundStatus || order?.refund?.status);
+    if (status === 'REFUNDED') return 'Đã hoàn tiền thành công.';
+    if (status === 'PROCESSING') return 'Đã tạo lệnh hoàn tiền, payOS đang xử lý.';
+    return 'Đã cập nhật trạng thái hoàn tiền.';
 }
 
 async function submitProfile(event) {
