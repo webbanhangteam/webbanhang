@@ -181,6 +181,7 @@ async function init() {
     await initSearchPage();
     updateAccountUi();
     renderAdminProducts();
+    await handlePaymentReturnNotice();
 }
 
 async function loadSiteContent() {
@@ -323,8 +324,12 @@ function bindStaticEvents() {
         });
     }
 
+    document.getElementById('payosCheckout')?.addEventListener('click', () => {
+        startPayOsCheckout();
+    });
+
     document.getElementById('vietQrCheckout')?.addEventListener('click', () => {
-        startVietQrCheckout();
+        startPayOsCheckout();
     });
 
     document.getElementById('codCheckout')?.addEventListener('click', () => {
@@ -1804,6 +1809,77 @@ async function startVietQrCheckout() {
     }
 }
 
+async function startPayOsCheckout() {
+    const amount = cart.reduce((sum, item) => {
+        return sum + Number(item.price || 0) * Number(item.quantity || 0);
+    }, 0);
+
+    if (!amount) {
+        checkoutMessage.textContent = contentText('messages.payos.needItems', 'Vui lòng thêm sản phẩm trước khi thanh toán payOS.');
+        return;
+    }
+
+    if (!currentUser?.token) {
+        checkoutMessage.textContent = contentText('messages.payos.needLogin', 'Vui lòng đăng nhập trước khi thanh toán payOS.');
+        showAuthModal();
+        return;
+    }
+
+    if (!hasCompleteProfile(currentUser)) {
+        checkoutMessage.textContent = contentText('messages.payos.profileMissing', 'Vui lòng cập nhật tên, số điện thoại và địa chỉ ở tài khoản.');
+        if (profileFullName) {
+            profileFullName.focus();
+        } else {
+            window.location.href = '/profile.html';
+        }
+        return;
+    }
+
+    resetVietQrPanel();
+    checkoutMessage.textContent = contentText('messages.payos.creating', 'Đang tạo link thanh toán payOS...');
+
+    try {
+        const response = await fetch('/api/payments/payos', {
+            method: 'POST',
+            headers: authHeaders(true),
+            body: JSON.stringify({
+                description: contentText('messages.payos.description', 'Thanh toán payOS'),
+                items: getCheckoutItems()
+            })
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.checkoutUrl) {
+            checkoutMessage.textContent = data.message || contentText('messages.payos.createFailed', 'Không tạo được link thanh toán payOS.');
+            return;
+        }
+
+        cart = [];
+        saveCart();
+        renderCart();
+        if (Array.isArray(data.products)) {
+            products = data.products;
+        } else {
+            await loadProducts();
+        }
+        syncCartWithProducts();
+        renderProducts();
+        renderProductDetail();
+        renderSearch(searchInput?.value || '');
+        await loadOrderHistory();
+        await loadNotifications();
+        if (currentUser.role === 'Admin') {
+            await loadAdminOrders();
+        }
+
+        checkoutMessage.textContent = contentTemplate('messages.payos.created', { orderId: data.orderId }, 'Đã tạo link payOS cho đơn {orderId}. Đang chuyển sang trang thanh toán...');
+        showToast('Đang chuyển sang payOS để thanh toán.', 'info', 3500);
+        window.location.href = data.checkoutUrl;
+    } catch {
+        checkoutMessage.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
+    }
+}
+
 async function startCodCheckout() {
     const amount = cart.reduce((sum, item) => {
         return sum + Number(item.price || 0) * Number(item.quantity || 0);
@@ -2018,6 +2094,38 @@ async function checkVietQrPaymentStatus(orderId) {
     } catch {
         // Polling is best effort; the next interval can try again.
     }
+}
+
+async function handlePaymentReturnNotice() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('payment') !== 'payos') return;
+
+    const status = String(params.get('status') || '').toUpperCase();
+    const orderCode = params.get('orderCode') || '';
+    const cancelled = params.get('cancel') === 'true' || status === 'CANCELLED';
+
+    if (status === 'PAID') {
+        const suffix = orderCode ? `Đơn ${orderCode} ` : '';
+        showToast(`${suffix}đã thanh toán thành công.`, 'success', 6000);
+        if (checkoutMessage) checkoutMessage.textContent = `${suffix}đã thanh toán thành công.`;
+    } else if (cancelled) {
+        showToast('Bạn đã hủy thanh toán payOS.', 'info', 4500);
+    } else {
+        showToast('Thanh toán payOS đang được xử lý.', 'info', 4500);
+    }
+
+    if (currentUser?.token) {
+        await loadOrderHistory();
+        await loadNotifications();
+    }
+
+    ['payment', 'status', 'orderCode', 'cancel'].forEach((key) => params.delete(key));
+    const query = params.toString();
+    window.history.replaceState(
+        {},
+        '',
+        `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`
+    );
 }
 
 function getCheckoutItems() {
@@ -2655,6 +2763,12 @@ function renderOrderHistory(orders) {
                 <i class="bi bi-qr-code"></i> Lấy lại mã QR
                </button>`
             : '';
+        const payOsCheckoutUrl = getPayOsCheckoutUrl(order);
+        const payOsRestoreButton = isUnpaidPayOsOrder(order) && payOsCheckoutUrl
+            ? `<a class="order-return-button" href="${escapeAttr(payOsCheckoutUrl)}">
+                <i class="bi bi-credit-card"></i> Tiếp tục thanh toán payOS
+               </a>`
+            : '';
         const returnState = order.returnRequest
             ? `<div class="order-return-state">
                 <strong>${escapeHtml(getReturnRequestTypeLabel(order.returnRequest.type))}</strong>
@@ -2681,6 +2795,7 @@ function renderOrderHistory(orders) {
                 ${receivedButton}
                 ${cancelButton}
                 ${vietQrRestoreButton}
+                ${payOsRestoreButton}
                 ${returnButton}
                 ${returnState}
             </article>
@@ -3018,6 +3133,7 @@ function getOrderDisplayStatusLabel(order) {
 
     if (fulfillmentStatus === 'ORDERED') {
         if (paymentStatus === 'PAID') return 'Đã thanh toán';
+        if (paymentStatus === 'PAYOS_PENDING') return 'Chờ thanh toán payOS';
         if (paymentStatus === VIETQR_WAITING_CONFIRMATION_STATUS) return 'Chờ xác nhận';
         if (paymentStatus === 'VIETQR_PENDING') return 'Chờ chuyển khoản';
     }
@@ -3028,6 +3144,7 @@ function getOrderDisplayStatusLabel(order) {
 function getOrderPaymentLabel(status, provider = '') {
     const normalized = String(status || '').toUpperCase();
     const labels = {
+        PAYOS_PENDING: 'Chờ thanh toán payOS',
         VIETQR_PENDING: 'Chờ khách chuyển khoản',
         VIETQR_WAITING_CONFIRMATION: 'Chờ xác nhận chuyển khoản',
         COD_PENDING: 'Thanh toán khi nhận hàng',
@@ -3038,6 +3155,7 @@ function getOrderPaymentLabel(status, provider = '') {
     };
 
     if (labels[normalized]) return labels[normalized];
+    if (String(provider || '').toLowerCase() === 'payos') return 'Thanh toán payOS';
     if (String(provider || '').toLowerCase() === 'vietqr') return 'Thanh toán VietQR';
     if (String(provider || '').toLowerCase() === 'cod') return 'Thanh toán COD';
     return normalized;
@@ -3049,6 +3167,32 @@ function isUnpaidVietQrOrder(order) {
 
     const paymentStatus = String(order?.status || '').toUpperCase();
     return !['PAID', 'PAID_AFTER_CANCEL', 'FAILED'].includes(paymentStatus);
+}
+
+function isUnpaidPayOsOrder(order) {
+    if (String(order?.provider || '').toLowerCase() !== 'payos') return false;
+    if (normalizeOrderFulfillmentStatus(order?.fulfillmentStatus) === CANCELLED_FULFILLMENT_STATUS) return false;
+
+    const paymentStatus = String(order?.status || '').toUpperCase();
+    return !['PAID', 'PAID_AFTER_CANCEL', 'FAILED'].includes(paymentStatus);
+}
+
+function getPayOsCheckoutUrl(order) {
+    const candidates = [
+        order?.checkoutUrl,
+        order?.gatewayResponse?.checkoutUrl,
+        order?.gatewayResponse?.data?.checkoutUrl,
+        order?.gatewayResponse?.response?.data?.checkoutUrl
+    ];
+    const checkoutUrl = candidates.find(Boolean);
+    if (!checkoutUrl) return '';
+
+    try {
+        const url = new URL(String(checkoutUrl));
+        return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+    } catch {
+        return '';
+    }
 }
 
 function getReturnRequestTypeLabel(type) {
