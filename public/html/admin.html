@@ -48,6 +48,8 @@
                 <button type="button" class="active" data-admin-tab="products"><i class="bi bi-box-seam"></i> Sản phẩm</button>
                 <button type="button" data-admin-tab="orders"><i class="bi bi-receipt"></i> Đơn hàng <span id="adminNewOrdersBadge" class="admin-new-orders-badge" hidden>0</span></button>
                 <button type="button" data-admin-tab="returns"><i class="bi bi-arrow-counterclockwise"></i> Đổi/trả</button>
+                <button type="button" data-admin-tab="reviews"><i class="bi bi-star-fill"></i> Đánh giá</button>
+                <button type="button" data-admin-tab="accounts"><i class="bi bi-person-lock"></i> Tài khoản</button>
             </div>
             <div class="admin-tab-content active" id="adminTabProducts">
                 <div class="admin-grid">
@@ -86,6 +88,20 @@
                     <div class="history-head"><h3>Yêu cầu đổi/trả</h3><button class="outline-btn" type="button" id="refreshAdminReturnRequestsButton">Tải lại</button></div>
                     <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Đơn hàng</th><th>Khách hàng</th><th>Yêu cầu</th><th>Trạng thái</th><th></th></tr></thead><tbody id="adminReturnRequestsBody"></tbody></table></div>
                     <p id="adminReturnRequestsMessage" class="checkout-message"></p>
+                </div>
+            </div>
+            <div class="admin-tab-content" id="adminTabReviews">
+                <div class="admin-orders">
+                    <div class="history-head"><h3>Đánh giá sản phẩm</h3><button class="outline-btn" type="button" id="refreshAdminReviewsButton">Tải lại</button></div>
+                    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Sản phẩm</th><th>Khách hàng</th><th>Sao</th><th>Nhận xét</th><th>Phản hồi</th><th></th></tr></thead><tbody id="adminReviewsBody"></tbody></table></div>
+                    <p id="adminReviewsMessage" class="checkout-message"></p>
+                </div>
+            </div>
+            <div class="admin-tab-content" id="adminTabAccounts">
+                <div class="admin-orders">
+                    <div class="history-head"><h3>Yêu cầu quên mật khẩu</h3><button class="outline-btn" type="button" id="refreshAdminPasswordResetRequestsButton">Tải lại</button></div>
+                    <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Tài khoản</th><th>Liên hệ</th><th>Ghi chú</th><th>Trạng thái</th><th></th></tr></thead><tbody id="adminPasswordResetRequestsBody"></tbody></table></div>
+                    <p id="adminPasswordResetRequestsMessage" class="checkout-message"></p>
                 </div>
             </div>
         </section>

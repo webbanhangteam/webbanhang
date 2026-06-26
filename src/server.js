@@ -5,7 +5,13 @@ const path = require('path');
 const crypto = require('crypto');
 const db = require('./config/db');
 const logger = require('./utils/logger');
-const { ensureUserDataFile, handleAuthRoute, getUserByUsername } = require('./routes/auth');
+const {
+  ensureUserDataFile,
+  handleAuthRoute,
+  getUserByUsername,
+  hashPassword,
+  validatePassword
+} = require('./routes/auth');
 const {
   ensureProductsDataFile,
   handleProductsRoute,
@@ -31,6 +37,7 @@ const fulfillmentStatuses = ['ORDERED', 'PREPARING', 'SHIPPING', 'DELIVERED', 'C
 const refundStatuses = ['NONE', 'PENDING', 'PROCESSING', 'REFUNDED', 'FAILED'];
 const returnRequestTypes = ['return', 'exchange'];
 const returnRequestStatuses = ['PENDING', 'APPROVED', 'REJECTED', 'COMPLETED'];
+const passwordResetStatuses = ['PENDING', 'RESOLVED', 'REJECTED'];
 const returnWindowMs = 7 * 24 * 60 * 60 * 1000;
 
 const productsDataFile = path.join(root, 'data', 'products.json');
@@ -53,6 +60,12 @@ const authRateLimiter = createRateLimiter({
     {
       method: 'POST',
       paths: ['/api/auth/register', '/api/v1/auth/register'],
+      limit: 5,
+      windowMs: 60 * 1000
+    },
+    {
+      method: 'POST',
+      paths: ['/api/auth/password-reset-requests', '/api/v1/auth/password-reset-requests'],
       limit: 5,
       windowMs: 60 * 1000
     }
@@ -100,6 +113,8 @@ const payOsConfig = {
   clientId: String(process.env.PAYOS_CLIENT_ID || '').trim(),
   apiKey: String(process.env.PAYOS_API_KEY || '').trim(),
   checksumKey: String(process.env.PAYOS_CHECKSUM_KEY || '').trim(),
+  payoutClientId: String(process.env.PAYOS_PAYOUT_CLIENT_ID || process.env.PAYOS_CLIENT_ID || '').trim(),
+  payoutApiKey: String(process.env.PAYOS_PAYOUT_API_KEY || process.env.PAYOS_API_KEY || '').trim(),
   payoutChecksumKey: String(process.env.PAYOS_PAYOUT_CHECKSUM_KEY || process.env.PAYOS_CHECKSUM_KEY || '').trim(),
   partnerCode: String(process.env.PAYOS_PARTNER_CODE || '').trim(),
   apiBaseUrl: String(process.env.PAYOS_API_BASE_URL || 'https://api-merchant.payos.vn').replace(/\/+$/, ''),
@@ -194,7 +209,8 @@ async function handleApi(req, res, requestUrl) {
     getSessionFromRequest,
     updateSessionUser,
     isAdminRequest: req => isAdminRequest(req, getSessionFromRequest),
-    sendForbidden
+    sendForbidden,
+    broadcastAdminEvent: broadcastAdminOrderEvent
   };
 
   if (await handleAuthRoute(req, res, routeUrl, routeContext)) {
@@ -291,6 +307,71 @@ async function handleApi(req, res, requestUrl) {
     }
 
     sendJson(res, 200, { ok: true, returnRequest: result.request });
+    return;
+  }
+
+  if (req.method === 'GET' && routeUrl.pathname === '/api/admin/reviews') {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, reviews: await getRecentProductReviews(200) });
+    return;
+  }
+
+  const adminReviewReplyMatch = routeUrl.pathname.match(/^\/api\/admin\/reviews\/(\d+)\/reply$/);
+  if (req.method === 'PUT' && adminReviewReplyMatch) {
+    const adminUser = getSessionFromRequest(req);
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    const body = await readRequestBodySafely(req, res);
+    if (!body) return;
+
+    const result = await updateProductReviewReplyByAdmin(
+      Number(adminReviewReplyMatch[1]),
+      adminUser,
+      body
+    );
+    if (!result.ok) {
+      sendJson(res, result.statusCode, { ok: false, message: result.message });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, review: result.review });
+    return;
+  }
+
+  if (req.method === 'GET' && routeUrl.pathname === '/api/admin/password-reset-requests') {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, requests: await getPasswordResetRequests() });
+    return;
+  }
+
+  const adminPasswordResetMatch = routeUrl.pathname.match(/^\/api\/admin\/password-reset-requests\/(\d+)$/);
+  if (req.method === 'PUT' && adminPasswordResetMatch) {
+    if (!isAdminRequest(req, getSessionFromRequest)) {
+      sendForbidden(res, sendJson);
+      return;
+    }
+
+    const body = await readRequestBodySafely(req, res);
+    if (!body) return;
+
+    const result = await updatePasswordResetRequestByAdmin(Number(adminPasswordResetMatch[1]), body);
+    if (!result.ok) {
+      sendJson(res, result.statusCode, { ok: false, message: result.message });
+      return;
+    }
+
+    sendJson(res, 200, { ok: true, request: result.request });
     return;
   }
 
@@ -582,7 +663,14 @@ async function handleApi(req, res, requestUrl) {
       requestId: req.requestId
     });
     if (!result.ok) {
-      sendJson(res, result.statusCode, { ok: false, message: result.message });
+      if (result.order) {
+        notifyOrderRefundStatusChanged(result.order, req.requestId, 'admin');
+      }
+      sendJson(res, result.statusCode, {
+        ok: false,
+        message: result.message,
+        ...(result.order ? { order: result.order } : {})
+      });
       return;
     }
 
@@ -1118,6 +1206,9 @@ async function getProductReviews(productId, userId = null) {
        pr.user_id,
        pr.rating,
        pr.comment,
+       pr.admin_reply,
+       pr.admin_replied_at,
+       pr.admin_replied_by,
        pr.created_at,
        pr.updated_at,
        o.order_code,
@@ -1125,10 +1216,13 @@ async function getProductReviews(productId, userId = null) {
        o.customer_name,
        u.username,
        u.full_name,
+       admin_user.username AS admin_username,
+       admin_user.full_name AS admin_full_name,
        p.name AS product_name
      FROM product_reviews pr
      INNER JOIN orders o ON o.id = pr.order_id
      LEFT JOIN users u ON u.id = pr.user_id
+     LEFT JOIN users admin_user ON admin_user.id = pr.admin_replied_by
      LEFT JOIN products p ON p.id = pr.product_id
      WHERE pr.product_id = ?
      ORDER BY pr.created_at DESC, pr.id DESC`,
@@ -1222,6 +1316,9 @@ async function getProductReviewById(id) {
        pr.user_id,
        pr.rating,
        pr.comment,
+       pr.admin_reply,
+       pr.admin_replied_at,
+       pr.admin_replied_by,
        pr.created_at,
        pr.updated_at,
        o.order_code,
@@ -1229,10 +1326,13 @@ async function getProductReviewById(id) {
        o.customer_name,
        u.username,
        u.full_name,
+       admin_user.username AS admin_username,
+       admin_user.full_name AS admin_full_name,
        p.name AS product_name
      FROM product_reviews pr
      INNER JOIN orders o ON o.id = pr.order_id
      LEFT JOIN users u ON u.id = pr.user_id
+     LEFT JOIN users admin_user ON admin_user.id = pr.admin_replied_by
      LEFT JOIN products p ON p.id = pr.product_id
      WHERE pr.id = ?
      LIMIT 1`,
@@ -1245,6 +1345,7 @@ function rowToReview(row) {
   if (!row) return null;
 
   const authorName = row.full_name || row.customer_name || row.username || row.customer_username || 'Khach hang';
+  const adminReply = String(row.admin_reply || '').trim();
   return {
     id: Number(row.id),
     productId: Number(row.product_id),
@@ -1254,6 +1355,12 @@ function rowToReview(row) {
     productName: row.product_name || '',
     rating: Number(row.rating),
     comment: row.comment || '',
+    adminReply: adminReply ? {
+      message: adminReply,
+      repliedAt: row.admin_replied_at,
+      adminId: row.admin_replied_by === null ? null : Number(row.admin_replied_by),
+      adminName: row.admin_full_name || row.admin_username || 'Admin'
+    } : null,
     authorName,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -1266,6 +1373,31 @@ function summarizeReviews(reviews) {
   const average = count ? Number((total / count).toFixed(1)) : 0;
 
   return { count, average };
+}
+
+async function updateProductReviewReplyByAdmin(reviewId, adminUser, input) {
+  const reply = String(input.reply || input.adminReply || input.message || '').trim().slice(0, 2000);
+  const review = await getProductReviewById(reviewId);
+
+  if (!review) {
+    return { ok: false, statusCode: 404, message: 'Khong tim thay danh gia' };
+  }
+
+  await db.execute(
+    `UPDATE product_reviews
+     SET admin_reply = ?,
+         admin_replied_at = ?,
+         admin_replied_by = ?
+     WHERE id = ?`,
+    [
+      reply || null,
+      reply ? new Date() : null,
+      reply && adminUser?.id ? Number(adminUser.id) : null,
+      Number(reviewId)
+    ]
+  );
+
+  return { ok: true, review: await getProductReviewById(reviewId) };
 }
 
 async function createReturnRequest(orderDbId, userId, input) {
@@ -1442,6 +1574,152 @@ function rowToReturnRequest(row) {
   };
 }
 
+async function getPasswordResetRequests(limit = 200) {
+  const normalizedLimit = Math.min(300, Math.max(1, Number(limit) || 200));
+  const [rows] = await db.execute(
+    `SELECT
+       prr.id,
+       prr.user_id,
+       prr.username,
+       prr.contact,
+       prr.note,
+       prr.status,
+       prr.admin_note,
+       prr.created_at,
+       prr.updated_at,
+       u.id AS matched_user_id,
+       u.username AS matched_username,
+       u.full_name,
+       u.phone,
+       u.address
+     FROM password_reset_requests prr
+     LEFT JOIN users u ON u.id = prr.user_id
+     ORDER BY CASE WHEN prr.status = 'PENDING' THEN 0 ELSE 1 END, prr.created_at DESC, prr.id DESC
+     LIMIT ${normalizedLimit}`
+  );
+
+  return rows.map(rowToPasswordResetRequest);
+}
+
+async function getPasswordResetRequestById(id) {
+  const [rows] = await db.execute(
+    `SELECT
+       prr.id,
+       prr.user_id,
+       prr.username,
+       prr.contact,
+       prr.note,
+       prr.status,
+       prr.admin_note,
+       prr.created_at,
+       prr.updated_at,
+       u.id AS matched_user_id,
+       u.username AS matched_username,
+       u.full_name,
+       u.phone,
+       u.address
+     FROM password_reset_requests prr
+     LEFT JOIN users u ON u.id = prr.user_id
+     WHERE prr.id = ?
+     LIMIT 1`,
+    [Number(id)]
+  );
+
+  return rowToPasswordResetRequest(rows[0]);
+}
+
+async function updatePasswordResetRequestByAdmin(id, input) {
+  const status = normalizePasswordResetStatus(input.status);
+  if (!status) {
+    return { ok: false, statusCode: 400, message: 'Trang thai yeu cau khong hop le' };
+  }
+
+  const request = await getPasswordResetRequestById(id);
+  if (!request) {
+    return { ok: false, statusCode: 404, message: 'Khong tim thay yeu cau dat lai mat khau' };
+  }
+
+  const adminNote = String(input.adminNote || input.admin_note || '').trim().slice(0, 2000);
+
+  if (status === 'RESOLVED') {
+    if (!request.userId) {
+      return {
+        ok: false,
+        statusCode: 409,
+        message: 'Khong tim thay tai khoan khop voi yeu cau nay'
+      };
+    }
+
+    const newPassword = String(input.newPassword || input.password || '').trim();
+    const passwordError = validatePassword(newPassword);
+    if (passwordError) {
+      return { ok: false, statusCode: 400, message: passwordError };
+    }
+
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [userResult] = await connection.execute(
+        'UPDATE users SET password_hash = ? WHERE id = ?',
+        [hashPassword(newPassword), Number(request.userId)]
+      );
+
+      if (!userResult.affectedRows) {
+        await connection.rollback();
+        return { ok: false, statusCode: 404, message: 'Khong tim thay tai khoan' };
+      }
+
+      await connection.execute(
+        `UPDATE password_reset_requests
+         SET status = 'RESOLVED', admin_note = ?
+         WHERE id = ?`,
+        [adminNote || null, Number(id)]
+      );
+      await connection.commit();
+    } catch (err) {
+      await connection.rollback();
+      throw err;
+    } finally {
+      connection.release();
+    }
+
+    return { ok: true, request: await getPasswordResetRequestById(id) };
+  }
+
+  await db.execute(
+    `UPDATE password_reset_requests
+     SET status = ?, admin_note = ?
+     WHERE id = ?`,
+    [status, adminNote || null, Number(id)]
+  );
+
+  return { ok: true, request: await getPasswordResetRequestById(id) };
+}
+
+function rowToPasswordResetRequest(row) {
+  if (!row) return null;
+
+  return {
+    id: Number(row.id),
+    userId: row.user_id === null ? null : Number(row.user_id),
+    username: row.username || '',
+    contact: row.contact || '',
+    note: row.note || '',
+    status: normalizePasswordResetStatus(row.status) || 'PENDING',
+    adminNote: row.admin_note || '',
+    userFound: Boolean(row.matched_user_id),
+    matchedUser: row.matched_user_id ? {
+      id: Number(row.matched_user_id),
+      username: row.matched_username || '',
+      fullName: row.full_name || '',
+      phone: row.phone || '',
+      address: row.address || ''
+    } : null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
 function normalizeReturnRequestType(value) {
   const normalized = String(value || '').trim().toLowerCase();
   return returnRequestTypes.includes(normalized) ? normalized : null;
@@ -1450,6 +1728,11 @@ function normalizeReturnRequestType(value) {
 function normalizeReturnRequestStatus(value) {
   const normalized = String(value || '').trim().toUpperCase();
   return returnRequestStatuses.includes(normalized) ? normalized : null;
+}
+
+function normalizePasswordResetStatus(value) {
+  const normalized = String(value || '').trim().toUpperCase();
+  return passwordResetStatuses.includes(normalized) ? normalized : null;
 }
 
 function isWithinReturnWindow(receivedAt) {
@@ -1537,10 +1820,11 @@ async function getUserNotifications(userId) {
 }
 
 async function getAdminNotifications() {
-  const [orders, returnRequests, reviews] = await Promise.all([
+  const [orders, returnRequests, reviews, passwordResetRequests] = await Promise.all([
     fetchOrders('WHERE o.admin_seen_at IS NULL OR o.fulfillment_status = ?', ['DELIVERED']),
     getReturnRequests(),
-    getRecentProductReviews(60)
+    getRecentProductReviews(60),
+    getPasswordResetRequests(60)
   ]);
   const notifications = [];
 
@@ -1555,6 +1839,9 @@ async function getAdminNotifications() {
   });
   reviews.forEach((review) => {
     if (review) notifications.push(reviewToAdminNotification(review));
+  });
+  passwordResetRequests.forEach((request) => {
+    if (request?.status === 'PENDING') notifications.push(passwordResetRequestToAdminNotification(request));
   });
 
   return notifications
@@ -1881,6 +2168,21 @@ function reviewToAdminNotification(review) {
   };
 }
 
+function passwordResetRequestToAdminNotification(request) {
+  return {
+    id: `admin-password-reset-${request.id}`,
+    audience: 'admin',
+    type: 'password_reset_request',
+    tone: 'warning',
+    icon: 'bi-key-fill',
+    title: 'Khach quen mat khau',
+    message: `${request.username || 'Tai khoan'} vua gui yeu cau dat lai mat khau.`,
+    requestId: request.id,
+    username: request.username || '',
+    createdAt: request.createdAt || request.updatedAt
+  };
+}
+
 async function getRecentProductReviews(limit = 60) {
   const normalizedLimit = Math.min(100, Math.max(1, Number(limit) || 60));
   const [rows] = await db.execute(
@@ -1891,6 +2193,9 @@ async function getRecentProductReviews(limit = 60) {
        pr.user_id,
        pr.rating,
        pr.comment,
+       pr.admin_reply,
+       pr.admin_replied_at,
+       pr.admin_replied_by,
        pr.created_at,
        pr.updated_at,
        o.order_code,
@@ -1898,10 +2203,13 @@ async function getRecentProductReviews(limit = 60) {
        o.customer_name,
        u.username,
        u.full_name,
+       admin_user.username AS admin_username,
+       admin_user.full_name AS admin_full_name,
        p.name AS product_name
      FROM product_reviews pr
      INNER JOIN orders o ON o.id = pr.order_id
      LEFT JOIN users u ON u.id = pr.user_id
+     LEFT JOIN users admin_user ON admin_user.id = pr.admin_replied_by
      LEFT JOIN products p ON p.id = pr.product_id
      ORDER BY pr.created_at DESC, pr.id DESC
      LIMIT ${normalizedLimit}`
@@ -2372,7 +2680,7 @@ function getMissingPayOsConfig() {
 }
 
 function getMissingPayOsPayoutConfig() {
-  return ['clientId', 'apiKey', 'payoutChecksumKey'].filter(key => !payOsConfig[key]);
+  return ['payoutClientId', 'payoutApiKey', 'payoutChecksumKey'].filter(key => !payOsConfig[key]);
 }
 
 function buildPayOsCreatePaymentPayload({ orderId, amount, items, user }) {
@@ -2506,6 +2814,8 @@ async function requestPayOsPayout(body, idempotencyKey) {
   return requestPayOs('/v1/payouts', {
     method: 'POST',
     headers: {
+      'x-client-id': payOsConfig.payoutClientId,
+      'x-api-key': payOsConfig.payoutApiKey,
       'x-idempotency-key': idempotencyKey,
       'x-signature': signature
     },
@@ -4113,6 +4423,23 @@ async function refundCancelledPaidOrder(orderDbId, context = {}) {
   });
 
   const orders = await fetchOrders('WHERE o.id = ?', [Number(orderDbId)]);
+  if (refundStatus === 'FAILED') {
+    logger.warn('refund.payos_payout_rejected', {
+      requestId: context.requestId || null,
+      orderDbId: Number(orderDbId),
+      orderId: prepared.orderCode,
+      referenceId: prepared.referenceId,
+      responseCode: payoutResponse?.code || null,
+      responseDesc: payoutResponse?.desc || payoutResponse?.message || null
+    });
+    return {
+      ok: false,
+      statusCode: 502,
+      message: getPayOsPayoutFailureMessage(payoutResponse),
+      order: orders[0]
+    };
+  }
+
   return { ok: true, order: orders[0] };
 }
 
@@ -4170,8 +4497,9 @@ async function prepareRefundPayout(orderDbId, context = {}) {
       };
     }
 
-    const referenceId = order.refund_reference ||
-      `refund_${Number(order.id)}_${Date.now()}`;
+    const referenceId = refundStatus === 'FAILED' || !order.refund_reference
+      ? `refund_${Number(order.id)}_${Date.now()}`
+      : order.refund_reference;
     const payoutPayload = {
       referenceId,
       amount: Math.max(0, Math.round(Number(order.amount) || 0)),
@@ -4282,6 +4610,12 @@ function normalizePayOsPayoutRefundStatus(response) {
   if (states.some(state => ['SUCCEEDED', 'SUCCESS', 'COMPLETED'].includes(state))) return 'REFUNDED';
   if (states.some(state => ['FAILED', 'REJECTED', 'CANCELED', 'CANCELLED'].includes(state))) return 'FAILED';
   return 'PROCESSING';
+}
+
+function getPayOsPayoutFailureMessage(response) {
+  const detail = String(response?.desc || response?.message || response?.data?.message || '').trim();
+  if (detail) return `payOS tu choi lenh hoan tien: ${detail}`;
+  return 'payOS tu choi lenh hoan tien';
 }
 
 async function updateRefundFailure(orderDbId, payload) {

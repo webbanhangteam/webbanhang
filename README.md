@@ -176,6 +176,8 @@ Neu dung payOS:
 PAYOS_CLIENT_ID=
 PAYOS_API_KEY=
 PAYOS_CHECKSUM_KEY=
+PAYOS_PAYOUT_CLIENT_ID=
+PAYOS_PAYOUT_API_KEY=
 PAYOS_PAYOUT_CHECKSUM_KEY=
 PAYOS_RETURN_URL=https://your-domain.com/api/payments/payos/return
 PAYOS_CANCEL_URL=https://your-domain.com/api/payments/payos/return
@@ -388,6 +390,9 @@ Khi don da thanh toan bi huy, server dat `refund_status=PENDING`. Admin bam
 `Xac nhan hoan tien` trong bang don hang de tao lenh chi payOS (`POST /v1/payouts`).
 Neu payOS tra ve lenh dang xu ly, don se co `refund_status=PROCESSING`; neu lenh thanh
 cong, don co `refund_status=REFUNDED`.
+Neu payOS tra loi `API key khong ton tai`, kiem tra `PAYOS_PAYOUT_CLIENT_ID` va
+`PAYOS_PAYOUT_API_KEY`; neu khong cau hinh rieng, server se dung lai
+`PAYOS_CLIENT_ID` va `PAYOS_API_KEY`.
 
 Hoan tien tu dong can webhook thanh toan co thong tin tai khoan nguoi chuyen
 (`counterAccountBankId` va `counterAccountNumber`). Neu thieu du lieu nay, admin can

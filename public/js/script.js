@@ -68,6 +68,8 @@ let notificationStreamController = null;
 let notificationStreamReconnectTimer = null;
 let notificationStreamGeneration = 0;
 let adminReturnRequests = [];
+let adminReviews = [];
+let adminPasswordResetRequests = [];
 let adminRevenueSummary = null;
 let currentReviewData = null;
 let notifications = [];
@@ -134,6 +136,12 @@ const refreshAdminOrdersButton = document.getElementById('refreshAdminOrdersButt
 const adminReturnRequestsBody = document.getElementById('adminReturnRequestsBody');
 const adminReturnRequestsMessage = document.getElementById('adminReturnRequestsMessage');
 const refreshAdminReturnRequestsButton = document.getElementById('refreshAdminReturnRequestsButton');
+const adminReviewsBody = document.getElementById('adminReviewsBody');
+const adminReviewsMessage = document.getElementById('adminReviewsMessage');
+const refreshAdminReviewsButton = document.getElementById('refreshAdminReviewsButton');
+const adminPasswordResetRequestsBody = document.getElementById('adminPasswordResetRequestsBody');
+const adminPasswordResetRequestsMessage = document.getElementById('adminPasswordResetRequestsMessage');
+const refreshAdminPasswordResetRequestsButton = document.getElementById('refreshAdminPasswordResetRequestsButton');
 const adminRevenueBreakdown = document.getElementById('adminRevenueBreakdown');
 const adminNewOrdersBadge = document.getElementById('adminNewOrdersBadge');
 const notificationLoggedOut = document.getElementById('notificationLoggedOut');
@@ -181,6 +189,7 @@ loadSiteContent().finally(() => {
 
 async function init() {
     applySiteContent();
+    syncAccountPageLinks();
     renderFloatingContactButtons();
     bindStaticEvents();
     renderProductSkeletons();
@@ -470,6 +479,18 @@ function bindStaticEvents() {
         });
     }
 
+    if (refreshAdminReviewsButton) {
+        refreshAdminReviewsButton.addEventListener('click', () => {
+            loadAdminReviews();
+        });
+    }
+
+    if (refreshAdminPasswordResetRequestsButton) {
+        refreshAdminPasswordResetRequestsButton.addEventListener('click', () => {
+            loadAdminPasswordResetRequests();
+        });
+    }
+
     ensureAdminVariantPricesField();
 
     if (adminProductForm) {
@@ -501,6 +522,7 @@ function bindStaticEvents() {
         adminImage.addEventListener('input', updateAdminImagePreview);
     }
 
+    ensurePasswordResetPane();
     bindAuthModalEvents();
 }
 
@@ -533,6 +555,7 @@ async function restoreSession() {
         };
         localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
         await loadCartForCurrentUser();
+        syncAccountPageLinks();
     } catch {
         clearSession();
     }
@@ -625,7 +648,13 @@ function handleDocumentClick(event) {
         });
         colorButton.classList.add('selected');
         const product = products.find((item) => Number(item.id) === Number(currentDetailProductId));
-        if (product) updateDetailVariantState(product);
+        if (product) {
+            const selectedSizeButton = document.querySelector('.detail-card .size-list button.selected');
+            if (selectedSizeButton && getVariantStock(product, colorButton.dataset.color || '', selectedSizeButton.dataset.size || '') <= 0) {
+                selectedSizeButton.classList.remove('selected');
+            }
+            updateDetailVariantState(product);
+        }
         return;
     }
 
@@ -637,7 +666,13 @@ function handleDocumentClick(event) {
         });
         sizeButton.classList.add('selected');
         const product = products.find((item) => Number(item.id) === Number(currentDetailProductId));
-        if (product) updateDetailVariantState(product);
+        if (product) {
+            const selectedColorButton = document.querySelector('.detail-card .color-list button.selected');
+            if (selectedColorButton && getVariantStock(product, selectedColorButton.dataset.color || '', sizeButton.dataset.size || '') <= 0) {
+                selectedColorButton.classList.remove('selected');
+            }
+            updateDetailVariantState(product);
+        }
         return;
     }
 
@@ -725,6 +760,24 @@ function handleDocumentClick(event) {
             Number(returnStatusButton.dataset.returnRequestId),
             returnStatusButton.dataset.returnStatus
         );
+        return;
+    }
+
+    const reviewReplyButton = event.target.closest('[data-review-reply]');
+    if (reviewReplyButton) {
+        replyToProductReview(Number(reviewReplyButton.dataset.reviewReply));
+        return;
+    }
+
+    const passwordResetResolveButton = event.target.closest('[data-password-reset-resolve]');
+    if (passwordResetResolveButton) {
+        resolvePasswordResetRequest(Number(passwordResetResolveButton.dataset.passwordResetResolve));
+        return;
+    }
+
+    const passwordResetRejectButton = event.target.closest('[data-password-reset-reject]');
+    if (passwordResetRejectButton) {
+        rejectPasswordResetRequest(Number(passwordResetRejectButton.dataset.passwordResetReject));
     }
 }
 
@@ -765,11 +818,62 @@ function ensureAdminVariantPricesField() {
     }
 }
 
+function ensurePasswordResetPane() {
+    const loginPane = document.getElementById('loginPaneV2');
+    if (!loginPane || document.getElementById('passwordResetPaneV2')) return;
+
+    const loginForm = document.getElementById('loginForm');
+    const loginMessage = document.getElementById('loginMessage');
+    if (loginForm && !document.getElementById('forgotPasswordButton')) {
+        const forgotButton = document.createElement('button');
+        forgotButton.type = 'button';
+        forgotButton.id = 'forgotPasswordButton';
+        forgotButton.className = 'auth-link-btn';
+        forgotButton.textContent = 'Quên mật khẩu?';
+        forgotButton.addEventListener('click', () => setAuthMode('forgot'));
+
+        if (loginMessage) {
+            loginForm.insertBefore(forgotButton, loginMessage);
+        } else {
+            loginForm.appendChild(forgotButton);
+        }
+    }
+
+    const pane = document.createElement('div');
+    pane.id = 'passwordResetPaneV2';
+    pane.className = 'auth-pane';
+    pane.innerHTML = `
+        <form id="passwordResetRequestForm">
+            <div class="auth-input-group">
+                <input id="passwordResetUsername" name="username" type="text" placeholder="Tên đăng nhập" autocomplete="username" required>
+                <i class="bi bi-person"></i>
+            </div>
+            <div class="auth-input-group">
+                <input id="passwordResetContact" name="contact" type="text" placeholder="Số điện thoại hoặc email" autocomplete="tel" required>
+                <i class="bi bi-telephone"></i>
+            </div>
+            <textarea id="passwordResetNote" name="note" class="auth-textarea" rows="3" maxlength="2000" placeholder="Ghi chú để admin xác minh"></textarea>
+            <button class="auth-submit-btn" type="submit">Gửi yêu cầu</button>
+            <button class="auth-link-btn" type="button" id="backToLoginButton">Quay lại đăng nhập</button>
+            <p id="passwordResetMessage" class="auth-message-v2"></p>
+        </form>
+    `;
+    loginPane.insertAdjacentElement('afterend', pane);
+    pane.querySelector('#backToLoginButton')?.addEventListener('click', () => setAuthMode('login'));
+}
+
 function handleDocumentSubmit(event) {
     const reviewForm = event.target.closest('#detailReviewForm');
     if (reviewForm) {
         event.preventDefault();
         submitProductReview(reviewForm);
+        return;
+    }
+
+    const passwordResetForm = event.target.closest('#passwordResetRequestForm');
+    if (passwordResetForm) {
+        event.preventDefault();
+        submitPasswordResetRequest(passwordResetForm);
     }
 }
 
@@ -905,15 +1009,12 @@ function renderProductCard(product, showWishlist) {
     const primaryImage = getProductImages(product)[0];
     const wished = wishlist.has(Number(product.id));
     const salePercent = getProductSalePercent(product);
-    const basePrice = getProductBasePrice(product);
-    const salePrice = getProductSalePrice(product);
+    const salePrice = getLowestSelectableSalePrice(product);
     const outOfStock = isProductOutOfStock(product);
     const addButtonText = outOfStock
         ? contentText('buttons.soldOut', 'Hết hàng')
         : contentText('buttons.addShort', 'Thêm');
-    const priceHtml = salePercent
-        ? `<div class="price-stack"><strong>${currency.format(salePrice)}</strong><del>${currency.format(basePrice)}</del></div>`
-        : `<strong>${currency.format(basePrice)}</strong>`;
+    const priceHtml = renderSelectablePrice(product);
     const saleBadge = salePercent ? `<span class="sale-badge">-${salePercent}%</span>` : '';
     const chooseSize = contentText('labels.chooseSize', 'Chọn kích cỡ');
     const soldOut = contentText('labels.soldOut', 'hết hàng');
@@ -990,7 +1091,7 @@ function renderProductDetail(productId = currentDetailProductId) {
     const outOfStock = isProductOutOfStock(product);
 
     if (title) title.textContent = product.name;
-    if (price) price.innerHTML = renderPrice(product);
+    if (price) price.innerHTML = renderSelectablePrice(product);
     if (desc) desc.textContent = getProductDescription(product);
     if (detailBreadcrumbName) detailBreadcrumbName.textContent = product.name;
     if (detailCategoryBadge) detailCategoryBadge.textContent = product.displayCategory || 'Bán chạy';
@@ -1002,13 +1103,13 @@ function renderProductDetail(productId = currentDetailProductId) {
     if (detailCard) {
         detailCard.dataset.productId = product.id;
         detailCard.dataset.name = product.name;
-        detailCard.dataset.price = getProductSalePrice(product);
+        detailCard.dataset.price = getLowestSelectableSalePrice(product);
     }
 
     if (detailButton) {
         detailButton.dataset.productId = product.id;
         detailButton.dataset.name = product.name;
-        detailButton.dataset.price = getProductSalePrice(product);
+        detailButton.dataset.price = getLowestSelectableSalePrice(product);
         detailButton.disabled = outOfStock;
         detailButton.innerHTML = outOfStock
             ? `<i class="bi bi-x-circle"></i> ${escapeHtml(contentText('buttons.soldOut', 'Hết hàng'))}`
@@ -1017,14 +1118,12 @@ function renderProductDetail(productId = currentDetailProductId) {
 
     if (sizeList) {
         const sizes = getProductSizes(product);
-        const firstAvailableIndex = sizes.findIndex((size) => {
-            return Number(product.stock?.[String(size)] || 0) > 0;
-        });
-        sizeList.innerHTML = sizes.map((size, index) => {
-            const disabled = Number(product.stock?.[String(size)] || 0) <= 0 ? ' disabled' : '';
-            const selected = index === firstAvailableIndex ? ' class="selected"' : '';
+        sizeList.innerHTML = sizes.map((size) => {
+            const stock = getSizeTotalStock(product, size);
+            const disabled = stock <= 0 ? ' disabled' : '';
             const stockLabel = Number(product.stock?.[String(size)] || 0) <= 0 ? contentText('labels.soldOut', 'hết hàng') : `${Number(product.stock?.[String(size)] || 0)} còn`;
-            return `<button type="button" data-size="${escapeAttr(size)}"${selected}${disabled} title="${escapeAttr(stockLabel)}">${escapeHtml(size)}</button>`;
+            const availableLabel = stock <= 0 ? stockLabel : `${stock} con`;
+            return `<button type="button" data-size="${escapeAttr(size)}"${disabled} title="${escapeAttr(availableLabel)}">${escapeHtml(size)}</button>`;
         }).join('');
     }
 
@@ -1043,27 +1142,8 @@ function renderProductDetail(productId = currentDetailProductId) {
         if (optionGroup) optionGroup.hidden = !getProductSizes(product).length;
     }
 
-    selectFirstAvailableVariant(product);
     renderVariantInventory(product);
     updateDetailVariantState(product);
-}
-
-function selectFirstAvailableVariant(product) {
-    const colors = getProductColors(product);
-    const sizes = getProductSizes(product);
-    const colorButtons = Array.from(document.querySelectorAll('.detail-card .color-list button'));
-    const sizeButtons = Array.from(document.querySelectorAll('.detail-card .size-list button'));
-    colorButtons.forEach((button) => button.classList.remove('selected'));
-    sizeButtons.forEach((button) => button.classList.remove('selected'));
-
-    for (const color of colors.length ? colors : ['']) {
-        for (const size of sizes.length ? sizes : ['']) {
-            if (getVariantStock(product, color, size) <= 0) continue;
-            colorButtons.find((button) => button.dataset.color === color)?.classList.add('selected');
-            sizeButtons.find((button) => button.dataset.size === size)?.classList.add('selected');
-            return;
-        }
-    }
 }
 
 function updateDetailVariantState(product) {
@@ -1074,28 +1154,35 @@ function updateDetailVariantState(product) {
     const detailButton = document.querySelector('.add-detail-cart');
     const detailCard = document.querySelector('.detail-card');
     const price = document.querySelector('.detail-price');
-    const selectionComplete = (!getProductColors(product).length || selectedColor) &&
-        (!getProductSizes(product).length || selectedSize);
+    const selectionComplete = isVariantSelectionComplete(product, selectedColor, selectedSize);
     const selectedPrice = getProductSalePrice(product, selectedColor, selectedSize);
 
-    if (price) price.innerHTML = renderPrice(product, selectedColor, selectedSize);
-    if (detailCard) detailCard.dataset.price = selectedPrice;
+    if (price) price.innerHTML = renderSelectablePrice(product, selectedColor, selectedSize);
+    if (detailCard) detailCard.dataset.price = selectionComplete ? selectedPrice : getLowestSelectableSalePrice(product);
 
     if (status) {
         status.textContent = selectionComplete
             ? (stock > 0 ? `Còn ${stock} sản phẩm cho lựa chọn này` : 'Biến thể này đã hết hàng')
             : 'Chọn đầy đủ màu và kích cỡ để xem tồn kho';
         status.classList.toggle('sold-out', selectionComplete && stock <= 0);
+        if (!selectionComplete) {
+            status.textContent = `Chon ${getVariantSelectionRequirement(product)} de xem ton kho`;
+        }
     }
 
     if (detailButton) {
         detailButton.disabled = !selectionComplete || stock <= 0;
-        detailButton.dataset.price = selectedPrice;
+        detailButton.dataset.price = selectionComplete ? selectedPrice : getLowestSelectableSalePrice(product);
     }
+
+    document.querySelectorAll('.detail-card .color-list button').forEach((button) => {
+        const color = button.dataset.color || '';
+        button.disabled = (selectedSize ? getVariantStock(product, color, selectedSize) : getColorTotalStock(product, color)) <= 0;
+    });
 
     document.querySelectorAll('.detail-card .size-list button').forEach((button) => {
         const size = button.dataset.size || '';
-        button.disabled = getVariantStock(product, selectedColor, size) <= 0;
+        button.disabled = (selectedColor ? getVariantStock(product, selectedColor, size) : getSizeTotalStock(product, size)) <= 0;
     });
 }
 
@@ -1264,6 +1351,12 @@ function renderReviewForm(canReview, reviewableOrders) {
 
 function renderReviewItem(review) {
     const createdAt = review.createdAt ? new Date(review.createdAt).toLocaleDateString('vi-VN') : '';
+    const adminReply = review.adminReply?.message
+        ? `<div class="review-admin-reply">
+                <strong>Phản hồi từ shop</strong>
+                <p>${escapeHtml(review.adminReply.message)}</p>
+           </div>`
+        : '';
     return `
         <article class="review-card">
             <header>
@@ -1271,6 +1364,7 @@ function renderReviewItem(review) {
                 <span>${renderStars(review.rating || 0)}</span>
             </header>
             ${review.comment ? `<p>${escapeHtml(review.comment)}</p>` : ''}
+            ${adminReply}
             <small>${createdAt ? escapeHtml(createdAt) : ''}</small>
         </article>
     `;
@@ -1437,12 +1531,10 @@ function updateProductCardVariantPrice(card) {
     const size = sizes.length ? (card.querySelector('.product-size-select')?.value || '') : '';
     const selectionComplete = (!colors.length || color) && (!sizes.length || size);
 
-    priceContainer.innerHTML = selectionComplete
-        ? renderPrice(product, color, size)
-        : renderPrice(product);
+    priceContainer.innerHTML = renderSelectablePrice(product, color, size);
     card.dataset.price = selectionComplete
         ? getProductSalePrice(product, color, size)
-        : getProductSalePrice(product);
+        : getLowestSelectableSalePrice(product);
 }
 
 function addToCart(product, size, color = '') {
@@ -1813,7 +1905,7 @@ async function startVietQrCheckout() {
         if (profileFullName) {
             profileFullName.focus();
         } else {
-            window.location.href = '/profile.html';
+            redirectToAccountPage(currentUser);
         }
         return;
     }
@@ -1884,7 +1976,7 @@ async function startPayOsCheckout() {
         if (profileFullName) {
             profileFullName.focus();
         } else {
-            window.location.href = '/profile.html';
+            redirectToAccountPage(currentUser);
         }
         return;
     }
@@ -1955,7 +2047,7 @@ async function startCodCheckout() {
         if (profileFullName) {
             profileFullName.focus();
         } else {
-            window.location.href = '/profile.html';
+            redirectToAccountPage(currentUser);
         }
         return;
     }
@@ -2229,20 +2321,59 @@ async function submitAuth(url, payload, messageElement) {
         localStorage.setItem(SESSION_KEY, JSON.stringify(currentUser));
         await loadCartForCurrentUser();
         messageElement.textContent = contentText('messages.auth.success', 'Đăng nhập thành công.');
+        syncAccountPageLinks();
+        const modal = bootstrap.Modal.getInstance(document.getElementById('authModal'));
+        if (modal) modal.hide();
+
+        if (isAdminUser(currentUser)) {
+            redirectToAccountPage(currentUser);
+            return;
+        }
+
         updateAccountUi();
         syncCartWithProducts();
         renderCart();
-
-        const modal = bootstrap.Modal.getInstance(document.getElementById('authModal'));
-        if (modal) modal.hide();
     } catch {
         messageElement.textContent = contentText('messages.common.serverDisconnected', 'Không kết nối được server.');
     }
 }
 
+async function submitPasswordResetRequest(form) {
+    const messageElement = document.getElementById('passwordResetMessage');
+    if (messageElement) messageElement.textContent = 'Đang gửi yêu cầu...';
+
+    try {
+        const payload = {
+            username: form.elements.username?.value || '',
+            contact: form.elements.contact?.value || '',
+            note: form.elements.note?.value || ''
+        };
+        const response = await fetch('/api/auth/password-reset-requests', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            if (messageElement) messageElement.textContent = data.message || 'Không gửi được yêu cầu.';
+            return;
+        }
+
+        form.reset();
+        if (messageElement) {
+            messageElement.textContent = data.message || 'Đã gửi yêu cầu. Admin sẽ liên hệ sau khi xác minh.';
+        }
+    } catch {
+        if (messageElement) messageElement.textContent = 'Không kết nối được server.';
+    }
+}
+
 function showAuthModal() {
     if (!authModal || typeof bootstrap === 'undefined') {
-        window.location.href = '/profile.html';
+        redirectToAccountPage();
         return;
     }
     setAuthMode('login');
@@ -2288,15 +2419,22 @@ function bindAuthModalEvents() {
 
 function setAuthMode(mode) {
     const isRegister = mode === 'register';
-    if (loginTabV2) loginTabV2.classList.toggle('active', !isRegister);
+    const isForgot = mode === 'forgot';
+    const passwordResetPane = document.getElementById('passwordResetPaneV2');
+    if (loginTabV2) loginTabV2.classList.toggle('active', !isRegister && !isForgot);
     if (registerTabV2) registerTabV2.classList.toggle('active', isRegister);
-    if (loginPaneV2) loginPaneV2.classList.toggle('active', !isRegister);
+    if (loginPaneV2) loginPaneV2.classList.toggle('active', !isRegister && !isForgot);
     if (registerPaneV2) registerPaneV2.classList.toggle('active', isRegister);
+    if (passwordResetPane) passwordResetPane.classList.toggle('active', isForgot);
     if (authFormTitle) authFormTitle.textContent = isRegister ? 'Đăng ký' : 'Đăng nhập';
     if (authFormSubtitle) {
         authFormSubtitle.textContent = isRegister
             ? 'Tạo tài khoản để lưu đơn hàng và đồng bộ thông tin'
             : 'Nhập thông tin tài khoản của bạn';
+    }
+    if (authFormTitle && isForgot) authFormTitle.textContent = 'Quên mật khẩu';
+    if (authFormSubtitle && isForgot) {
+        authFormSubtitle.textContent = 'Gửi yêu cầu để admin xác minh và đặt lại mật khẩu';
     }
     clearAuthMessages();
 }
@@ -2304,8 +2442,10 @@ function setAuthMode(mode) {
 function clearAuthMessages() {
     const loginMessage = document.getElementById('loginMessage');
     const registerMessage = document.getElementById('registerMessage');
+    const passwordResetMessage = document.getElementById('passwordResetMessage');
     if (loginMessage) loginMessage.textContent = '';
     if (registerMessage) registerMessage.textContent = '';
+    if (passwordResetMessage) passwordResetMessage.textContent = '';
 }
 
 function switchProfileTab(tab) {
@@ -2324,6 +2464,13 @@ function switchProfileTab(tab) {
 }
 
 function updateAccountUi() {
+    syncAccountPageLinks();
+
+    if (isAdminUser(currentUser) && isProfilePage()) {
+        redirectToAccountPage(currentUser, { replace: true });
+        return;
+    }
+
     adminPageLinks.forEach((link) => {
         link.hidden = currentUser?.role !== 'Admin';
     });
@@ -2349,10 +2496,16 @@ function updateAccountUi() {
         if (returnsMessage) returnsMessage.textContent = '';
         if (adminOrdersBody) adminOrdersBody.innerHTML = '';
         if (adminOrdersMessage) adminOrdersMessage.textContent = '';
+        if (adminReviewsBody) adminReviewsBody.innerHTML = '';
+        if (adminReviewsMessage) adminReviewsMessage.textContent = '';
+        if (adminPasswordResetRequestsBody) adminPasswordResetRequestsBody.innerHTML = '';
+        if (adminPasswordResetRequestsMessage) adminPasswordResetRequestsMessage.textContent = '';
         if (notificationLoggedOut) notificationLoggedOut.hidden = false;
         if (notificationPanel) notificationPanel.hidden = true;
         if (notificationList) notificationList.innerHTML = '';
         if (notificationMessage) notificationMessage.textContent = '';
+        adminReviews = [];
+        adminPasswordResetRequests = [];
         notifications = [];
         unreadNotificationCount = 0;
         updateNotificationBadge();
@@ -2437,6 +2590,12 @@ function switchAdminTab(tab) {
     }
     if (normalizedTab === 'returns') {
         loadAdminReturnRequests();
+    }
+    if (normalizedTab === 'reviews') {
+        loadAdminReviews();
+    }
+    if (normalizedTab === 'accounts') {
+        loadAdminPasswordResetRequests();
     }
 }
 
@@ -2736,6 +2895,7 @@ function getNotificationIcon(notification) {
     if (type === 'order_delivered') return 'bi-check-circle-fill';
     if (type === 'return_requested') return 'bi-arrow-counterclockwise';
     if (type === 'product_review') return 'bi-star-fill';
+    if (type === 'password_reset_request') return 'bi-key-fill';
     if (notification?.status === CANCELLED_FULFILLMENT_STATUS) return 'bi-x-circle';
     if (notification?.status === 'SHIPPING') return 'bi-truck';
     return 'bi-bag-check';
@@ -2885,6 +3045,21 @@ function adminReviewPayloadToNotification(payload) {
         orderDbId: payload.orderDbId,
         orderId: payload.orderId,
         rating: Number(payload.rating) || 0,
+        createdAt: payload.createdAt || new Date().toISOString()
+    };
+}
+
+function adminPasswordResetPayloadToNotification(payload) {
+    return {
+        id: `admin-password-reset-${payload.id}`,
+        audience: 'admin',
+        type: 'password_reset_request',
+        tone: 'warning',
+        icon: 'bi-key-fill',
+        title: 'Khách quên mật khẩu',
+        message: `${payload.username || 'Tài khoản'} vừa gửi yêu cầu đặt lại mật khẩu.`,
+        requestId: payload.id,
+        username: payload.username || '',
         createdAt: payload.createdAt || new Date().toISOString()
     };
 }
@@ -3663,7 +3838,7 @@ function handleUserOrderEvent(rawEvent) {
             };
         });
         renderOrderHistory(userOrders);
-        showToast(getRefundSuccessToast(payload), 'info', 6000);
+        showToast(getRefundSuccessToast(payload), getRefundToastType(payload), 6000);
         return;
     }
 
@@ -3793,23 +3968,34 @@ async function refundOrderFromUi(orderId) {
         const data = await response.json();
 
         if (!response.ok || !data.order) {
+            if (data.order) {
+                applyRefundOrderUpdate(data.order);
+            }
             showToast(data.message || 'Không tạo được lệnh hoàn tiền.', 'error', 6000);
             if (button) button.disabled = false;
-            await loadAdminOrders();
+            if (!data.order) {
+                await loadAdminOrders();
+            }
             return;
         }
 
-        adminOrders = adminOrders.map((order) => {
-            return Number(order.id) === Number(orderId) ? data.order : order;
-        });
-        renderAdminOrders(adminOrders);
-        renderAdminStats(adminOrders);
-        loadAdminRevenueSummary();
+        applyRefundOrderUpdate(data.order);
         showToast(getRefundSuccessToast(data.order), 'success', 6000);
     } catch {
         showToast('Không kết nối được server.', 'error');
         if (button) button.disabled = false;
     }
+}
+
+function applyRefundOrderUpdate(order) {
+    if (!order) return;
+
+    adminOrders = adminOrders.map((item) => {
+        return Number(item.id) === Number(order.id) ? order : item;
+    });
+    renderAdminOrders(adminOrders);
+    renderAdminStats(adminOrders);
+    loadAdminRevenueSummary();
 }
 
 async function loadAdminOrders() {
@@ -4020,6 +4206,254 @@ async function updateAdminReturnRequest(requestId, status) {
     }
 }
 
+async function loadAdminReviews() {
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !adminReviewsBody || !adminReviewsMessage) return null;
+
+    adminReviewsMessage.textContent = 'Đang tải đánh giá...';
+
+    try {
+        const response = await fetch('/api/admin/reviews', {
+            headers: authHeaders(false),
+            cache: 'no-store'
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            adminReviewsMessage.textContent = data.message || 'Không tải được đánh giá.';
+            return null;
+        }
+
+        adminReviews = Array.isArray(data.reviews) ? data.reviews : [];
+        renderAdminReviews(adminReviews);
+        return adminReviews;
+    } catch {
+        adminReviewsMessage.textContent = 'Không kết nối được server.';
+        return null;
+    }
+}
+
+function renderAdminReviews(reviews) {
+    if (!adminReviewsBody) return;
+
+    if (!reviews.length) {
+        adminReviewsBody.innerHTML = '<tr><td colspan="6">Chưa có đánh giá.</td></tr>';
+        if (adminReviewsMessage) adminReviewsMessage.textContent = '';
+        return;
+    }
+
+    adminReviewsBody.innerHTML = reviews.map((review) => {
+        const createdAt = formatOrderDate(review.createdAt);
+        const reply = review.adminReply?.message || '';
+        return `
+            <tr>
+                <td>
+                    <strong>${escapeHtml(review.productName || 'Sản phẩm')}</strong>
+                    <small><a href="/product.html?id=${Number(review.productId)}&review=1">Xem sản phẩm</a></small>
+                </td>
+                <td>
+                    <div class="admin-customer">
+                        <span>${escapeHtml(review.authorName || 'Khách hàng')}</span>
+                        <small>${escapeHtml(review.orderId || '')}</small>
+                    </div>
+                </td>
+                <td>${renderStars(review.rating || 0)}</td>
+                <td>
+                    <small>${escapeHtml(review.comment || 'Không có nhận xét')}</small>
+                    ${createdAt ? `<small>${escapeHtml(createdAt)}</small>` : ''}
+                </td>
+                <td>
+                    ${reply ? `<div class="admin-review-reply">${escapeHtml(reply)}</div>` : '<small>Chưa phản hồi</small>'}
+                </td>
+                <td>
+                    <div class="admin-row-actions">
+                        <button type="button" data-review-reply="${Number(review.id)}">${reply ? 'Sửa' : 'Phản hồi'}</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+    if (adminReviewsMessage) adminReviewsMessage.textContent = '';
+}
+
+async function replyToProductReview(reviewId) {
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !reviewId) return;
+
+    const review = adminReviews.find((item) => Number(item.id) === Number(reviewId));
+    const currentReply = review?.adminReply?.message || '';
+    const reply = prompt('Nhập phản hồi hiển thị dưới đánh giá', currentReply);
+    if (reply === null) return;
+
+    try {
+        const response = await fetch(`/api/admin/reviews/${reviewId}/reply`, {
+            method: 'PUT',
+            headers: authHeaders(true),
+            body: JSON.stringify({ reply })
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.review) {
+            showToast(data.message || 'Không lưu được phản hồi.', 'error');
+            return;
+        }
+
+        adminReviews = adminReviews.map((item) => {
+            return Number(item.id) === Number(reviewId) ? data.review : item;
+        });
+        renderAdminReviews(adminReviews);
+        if (Number(currentDetailProductId) === Number(data.review.productId)) {
+            loadProductReviews(data.review.productId);
+        }
+        showToast('Đã lưu phản hồi đánh giá.', 'success');
+    } catch {
+        showToast('Không kết nối được server.', 'error');
+    }
+}
+
+async function loadAdminPasswordResetRequests() {
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !adminPasswordResetRequestsBody || !adminPasswordResetRequestsMessage) return null;
+
+    adminPasswordResetRequestsMessage.textContent = 'Đang tải yêu cầu reset mật khẩu...';
+
+    try {
+        const response = await fetch('/api/admin/password-reset-requests', {
+            headers: authHeaders(false),
+            cache: 'no-store'
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            adminPasswordResetRequestsMessage.textContent = data.message || 'Không tải được yêu cầu reset mật khẩu.';
+            return null;
+        }
+
+        adminPasswordResetRequests = Array.isArray(data.requests) ? data.requests : [];
+        renderAdminPasswordResetRequests(adminPasswordResetRequests);
+        return adminPasswordResetRequests;
+    } catch {
+        adminPasswordResetRequestsMessage.textContent = 'Không kết nối được server.';
+        return null;
+    }
+}
+
+function renderAdminPasswordResetRequests(requests) {
+    if (!adminPasswordResetRequestsBody) return;
+
+    if (!requests.length) {
+        adminPasswordResetRequestsBody.innerHTML = '<tr><td colspan="5">Chưa có yêu cầu reset mật khẩu.</td></tr>';
+        if (adminPasswordResetRequestsMessage) adminPasswordResetRequestsMessage.textContent = '';
+        return;
+    }
+
+    adminPasswordResetRequestsBody.innerHTML = requests.map((request) => {
+        const matchedUser = request.matchedUser || {};
+        const details = [
+            matchedUser.fullName || '',
+            matchedUser.phone ? `SĐT hồ sơ: ${matchedUser.phone}` : '',
+            request.userFound ? '' : 'Không tìm thấy tài khoản khớp'
+        ].filter(Boolean).map(escapeHtml).join('<br>');
+        const note = [request.note, request.adminNote ? `Admin: ${request.adminNote}` : '']
+            .filter(Boolean)
+            .map(escapeHtml)
+            .join('<br>');
+        return `
+            <tr>
+                <td>
+                    <strong>${escapeHtml(request.username || '')}</strong>
+                    <small>${escapeHtml(formatOrderDate(request.createdAt))}</small>
+                </td>
+                <td>
+                    <div class="admin-customer">
+                        <span>${escapeHtml(request.contact || '')}</span>
+                        <small>${details}</small>
+                    </div>
+                </td>
+                <td><small>${note || 'Không có ghi chú'}</small></td>
+                <td><span class="return-status">${escapeHtml(getPasswordResetStatusLabel(request.status))}</span></td>
+                <td>${renderPasswordResetActions(request)}</td>
+            </tr>
+        `;
+    }).join('');
+    if (adminPasswordResetRequestsMessage) adminPasswordResetRequestsMessage.textContent = '';
+}
+
+function renderPasswordResetActions(request) {
+    if (String(request.status || '').toUpperCase() !== 'PENDING') return '<small>Đã xử lý</small>';
+    if (!request.userFound) {
+        return `
+            <div class="admin-row-actions">
+                <button type="button" data-password-reset-reject="${Number(request.id)}">Từ chối</button>
+            </div>
+        `;
+    }
+
+    return `
+        <div class="admin-row-actions">
+            <button type="button" data-password-reset-resolve="${Number(request.id)}">Đặt mật khẩu</button>
+            <button type="button" data-password-reset-reject="${Number(request.id)}">Từ chối</button>
+        </div>
+    `;
+}
+
+async function resolvePasswordResetRequest(requestId) {
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !requestId) return;
+
+    const newPassword = prompt('Nhập mật khẩu mới cho tài khoản này');
+    if (newPassword === null) return;
+    const adminNote = prompt('Ghi chú xử lý (có thể để trống)', 'Đã đặt lại mật khẩu sau khi xác minh.');
+    if (adminNote === null) return;
+
+    await updatePasswordResetRequest(requestId, {
+        status: 'RESOLVED',
+        newPassword,
+        adminNote
+    });
+}
+
+async function rejectPasswordResetRequest(requestId) {
+    if (!currentUser?.token || currentUser.role !== 'Admin' || !requestId) return;
+
+    const adminNote = prompt('Lý do từ chối (có thể để trống)', '');
+    if (adminNote === null) return;
+
+    await updatePasswordResetRequest(requestId, {
+        status: 'REJECTED',
+        adminNote
+    });
+}
+
+async function updatePasswordResetRequest(requestId, payload) {
+    try {
+        const response = await fetch(`/api/admin/password-reset-requests/${requestId}`, {
+            method: 'PUT',
+            headers: authHeaders(true),
+            body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.request) {
+            showToast(data.message || 'Không cập nhật được yêu cầu reset mật khẩu.', 'error');
+            return;
+        }
+
+        adminPasswordResetRequests = adminPasswordResetRequests.map((request) => {
+            return Number(request.id) === Number(requestId) ? data.request : request;
+        });
+        renderAdminPasswordResetRequests(adminPasswordResetRequests);
+        showToast('Đã cập nhật yêu cầu reset mật khẩu.', 'success');
+    } catch {
+        showToast('Không kết nối được server.', 'error');
+    }
+}
+
+function getPasswordResetStatusLabel(status) {
+    const labels = {
+        PENDING: 'Chờ xử lý',
+        RESOLVED: 'Đã đặt lại',
+        REJECTED: 'Đã từ chối'
+    };
+    return labels[String(status || '').toUpperCase()] || 'Chờ xử lý';
+}
+
 async function startAdminOrderNotifications() {
     stopAdminOrderNotifications();
     const generation = adminOrderStreamGeneration;
@@ -4121,6 +4555,13 @@ function handleAdminOrderEvent(rawEvent) {
         return;
     }
 
+    if (eventName === 'auth.password_reset_requested') {
+        loadAdminPasswordResetRequests();
+        upsertNotification(adminPasswordResetPayloadToNotification(payload));
+        showToast(`Có yêu cầu đặt lại mật khẩu cho ${payload.username || 'tài khoản'}`, 'info', 6000);
+        return;
+    }
+
     if (eventName === 'order.created') {
         const exists = adminOrders.some((order) => Number(order.id) === Number(payload.id));
         if (!exists) {
@@ -4201,7 +4642,7 @@ function handleAdminOrderEvent(rawEvent) {
         renderAdminOrders(adminOrders);
         renderAdminStats(adminOrders);
         loadAdminRevenueSummary();
-        showToast(getRefundSuccessToast(payload), 'info', 6000);
+        showToast(getRefundSuccessToast(payload), getRefundToastType(payload), 6000);
         return;
     }
 
@@ -4213,6 +4654,7 @@ function handleAdminOrderEvent(rawEvent) {
     }
 
     if (eventName === 'product.review_created') {
+        loadAdminReviews();
         upsertNotification(adminReviewPayloadToNotification(payload));
         showToast(`Có đánh giá mới cho ${payload.productName || 'sản phẩm'}`, 'info', 6000);
     }
@@ -4455,13 +4897,28 @@ function renderOrderRefundState(order) {
     const reference = order?.refund?.reference
         ? `<small>${escapeHtml(order.refund.reference)}</small>`
         : '';
+    const failureDetail = refundStatus === 'FAILED'
+        ? getRefundFailureDetail(order)
+        : '';
 
     return `
         <div class="order-return-state notification-${tone}">
             <strong>${escapeHtml(getOrderRefundLabel(refundStatus))}</strong>
             ${reference}
+            ${failureDetail ? `<small>${escapeHtml(failureDetail)}</small>` : ''}
         </div>
     `;
+}
+
+function getRefundFailureDetail(order) {
+    const payload = order?.refund?.payload || {};
+    return String(
+        payload.error ||
+        payload.response?.desc ||
+        payload.response?.message ||
+        payload.response?.data?.message ||
+        ''
+    ).trim();
 }
 
 function isRefundableCanceledPaidOrder(order) {
@@ -4497,7 +4954,16 @@ function getRefundSuccessToast(order) {
     const status = normalizeOrderRefundStatus(order?.refundStatus || order?.refund?.status);
     if (status === 'REFUNDED') return 'Đã hoàn tiền thành công.';
     if (status === 'PROCESSING') return 'Đã tạo lệnh hoàn tiền, payOS đang xử lý.';
+    if (status === 'FAILED') {
+        const detail = getRefundFailureDetail(order);
+        return detail ? `Hoàn tiền thất bại: ${detail}` : 'Hoàn tiền thất bại.';
+    }
     return 'Đã cập nhật trạng thái hoàn tiền.';
+}
+
+function getRefundToastType(order) {
+    const status = normalizeOrderRefundStatus(order?.refundStatus || order?.refund?.status);
+    return status === 'FAILED' ? 'error' : 'info';
 }
 
 async function submitProfile(event) {
@@ -4834,6 +5300,72 @@ function renderPrice(product, color = '', size = '') {
             <del>${currency.format(basePrice)}</del>
         </div>
     `;
+}
+
+function getVariantSelectionRequirement(product) {
+    const needsColor = getProductColors(product).length > 0;
+    const needsSize = getProductSizes(product).length > 0;
+
+    if (needsColor && needsSize) return 'mau va kich co';
+    if (needsColor) return 'mau';
+    if (needsSize) return 'kich co';
+    return '';
+}
+
+function isVariantSelectionComplete(product, color = '', size = '') {
+    return (!getProductColors(product).length || String(color || '').trim()) &&
+        (!getProductSizes(product).length || String(size || '').trim());
+}
+
+function getLowestSelectableBasePrice(product) {
+    const colors = getProductColors(product);
+    const sizes = getProductSizes(product);
+    const colorValues = colors.length ? colors : [''];
+    const sizeValues = sizes.length ? sizes : [''];
+    let lowest = null;
+
+    colorValues.forEach((color) => {
+        sizeValues.forEach((size) => {
+            if (getVariantStock(product, color, size) <= 0) return;
+            const price = getProductBasePrice(product, color, size);
+            lowest = lowest === null ? price : Math.min(lowest, price);
+        });
+    });
+
+    return lowest === null ? getProductBasePrice(product) : lowest;
+}
+
+function getLowestSelectableSalePrice(product) {
+    const salePercent = getProductSalePercent(product);
+    const basePrice = getLowestSelectableBasePrice(product);
+    if (!salePercent) return basePrice;
+    return Math.max(0, Math.round(basePrice * (100 - salePercent) / 100));
+}
+
+function renderLowestSelectablePrice(product) {
+    const salePercent = getProductSalePercent(product);
+    const basePrice = getLowestSelectableBasePrice(product);
+    const salePrice = getLowestSelectableSalePrice(product);
+
+    if (!salePercent) {
+        return `<strong>${currency.format(basePrice)}</strong>`;
+    }
+
+    return `
+        <div class="price-stack">
+            <strong>${currency.format(salePrice)}</strong>
+            <del>${currency.format(basePrice)}</del>
+        </div>
+    `;
+}
+
+function renderSelectablePrice(product, color = '', size = '') {
+    const requirement = getVariantSelectionRequirement(product);
+    if (!requirement || isVariantSelectionComplete(product, color, size)) {
+        return renderPrice(product, color, size);
+    }
+
+    return renderLowestSelectablePrice(product);
 }
 
 function clampQuantity(product, quantity) {
@@ -5179,6 +5711,38 @@ function normalizeSession(session) {
         token: String(session.token),
         expiresAt: session.expiresAt || null
     };
+}
+
+function isAdminUser(user = currentUser) {
+    return Boolean(user?.token && user.role === 'Admin');
+}
+
+function isProfilePage() {
+    return window.location.pathname.endsWith('/profile.html');
+}
+
+function getAccountPagePath(user = currentUser) {
+    return user?.role === 'Admin' ? '/admin.html' : '/profile.html';
+}
+
+function syncAccountPageLinks() {
+    const href = getAccountPagePath();
+    document.querySelectorAll('a[data-account-page-link], a[href="/profile.html"], a[href="/admin.html"]').forEach((link) => {
+        link.dataset.accountPageLink = 'true';
+        link.setAttribute('href', href);
+    });
+}
+
+function redirectToAccountPage(user = currentUser, options = {}) {
+    const target = getAccountPagePath(user);
+    if (window.location.pathname.endsWith(target)) return false;
+
+    if (options.replace) {
+        window.location.replace(target);
+    } else {
+        window.location.href = target;
+    }
+    return true;
 }
 
 function hasCompleteProfile(user) {

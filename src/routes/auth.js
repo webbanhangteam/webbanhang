@@ -91,6 +91,11 @@ async function handleAuthRoute(req, res, requestUrl, context) {
     return true;
   }
 
+  if (route === 'passwordResetRequest') {
+    await createPasswordResetRequest(req, res, context);
+    return true;
+  }
+
   if (route === 'logout') {
     context.destroySession(req);
     context.sendJson(res, 200, {
@@ -195,6 +200,7 @@ function normalizeAuthPath(pathname) {
   const routes = {
     '/api/auth/register': 'register',
     '/api/auth/login': 'login',
+    '/api/auth/password-reset-requests': 'passwordResetRequest',
     '/api/auth/logout': 'logout',
     '/api/auth/me': 'me'
   };
@@ -212,6 +218,49 @@ async function readBodyOrBadRequest(req, res, context) {
     });
     return null;
   }
+}
+
+async function createPasswordResetRequest(req, res, context) {
+  const body = await readBodyOrBadRequest(req, res, context);
+  if (!body) return;
+
+  const username = normalizeUsername(body.username);
+  const contact = normalizeProfileField(body.contact || body.phone || body.email).slice(0, 160);
+  const note = normalizeProfileField(body.note || body.message).slice(0, 2000);
+
+  if (!username || !contact) {
+    context.sendJson(res, 400, {
+      ok: false,
+      message: 'Vui long nhap username va thong tin lien he'
+    });
+    return;
+  }
+
+  const user = await getUserByUsername(username);
+  const [result] = await db.execute(
+    `INSERT INTO password_reset_requests (user_id, username, contact, note, status)
+     VALUES (?, ?, ?, ?, 'PENDING')`,
+    [user?.id || null, username.slice(0, 80), contact, note || null]
+  );
+
+  const payload = {
+    id: Number(result.insertId),
+    userId: user?.id || null,
+    username: username.slice(0, 80),
+    contact,
+    note,
+    status: 'PENDING',
+    createdAt: new Date().toISOString()
+  };
+
+  if (typeof context.broadcastAdminEvent === 'function') {
+    context.broadcastAdminEvent('auth.password_reset_requested', payload);
+  }
+
+  context.sendJson(res, 201, {
+    ok: true,
+    message: 'Da gui yeu cau dat lai mat khau. Admin se lien he sau khi xac minh.'
+  });
 }
 
 function validatePassword(password) {
@@ -445,6 +494,7 @@ module.exports = {
   writeUsers,
   hashPassword,
   verifyPassword,
+  validatePassword,
   getUserByUsername,
   getUserById,
   updateUserProfile,

@@ -66,6 +66,25 @@ async function initDatabase() {
   `);
 
   await pool.execute(`
+    CREATE TABLE IF NOT EXISTS password_reset_requests (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id INT UNSIGNED NULL,
+      username VARCHAR(80) NOT NULL,
+      contact VARCHAR(160) NOT NULL DEFAULT '',
+      note TEXT NULL,
+      status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+      admin_note TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY password_reset_requests_user_id_index (user_id),
+      KEY idx_password_reset_requests_status (status),
+      KEY idx_password_reset_requests_created_at (created_at),
+      CONSTRAINT password_reset_requests_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.execute(`
     CREATE TABLE IF NOT EXISTS orders (
       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
       order_code VARCHAR(80) NOT NULL,
@@ -167,15 +186,20 @@ async function initDatabase() {
       user_id INT UNSIGNED NULL,
       rating TINYINT UNSIGNED NOT NULL,
       comment TEXT NULL,
+      admin_reply TEXT NULL,
+      admin_replied_at TIMESTAMP NULL DEFAULT NULL,
+      admin_replied_by INT UNSIGNED NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       UNIQUE KEY product_reviews_product_order_user_unique (product_id, order_id, user_id),
       KEY product_reviews_product_id_index (product_id),
       KEY product_reviews_user_id_index (user_id),
+      KEY idx_product_reviews_admin_replied_by (admin_replied_by),
       CONSTRAINT product_reviews_product_id_fk FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
       CONSTRAINT product_reviews_order_id_fk FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-      CONSTRAINT product_reviews_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+      CONSTRAINT product_reviews_user_id_fk FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+      CONSTRAINT product_reviews_admin_replied_by_fk FOREIGN KEY (admin_replied_by) REFERENCES users(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
@@ -334,6 +358,24 @@ async function initDatabase() {
     'ALTER TABLE order_items ADD COLUMN color VARCHAR(80) NULL AFTER size'
   );
 
+  await ensureColumnExists(
+    'product_reviews',
+    'admin_reply',
+    'ALTER TABLE product_reviews ADD COLUMN admin_reply TEXT NULL AFTER comment'
+  );
+
+  await ensureColumnExists(
+    'product_reviews',
+    'admin_replied_at',
+    'ALTER TABLE product_reviews ADD COLUMN admin_replied_at TIMESTAMP NULL DEFAULT NULL AFTER admin_reply'
+  );
+
+  await ensureColumnExists(
+    'product_reviews',
+    'admin_replied_by',
+    'ALTER TABLE product_reviews ADD COLUMN admin_replied_by INT UNSIGNED NULL AFTER admin_replied_at'
+  );
+
   await ensureIndexExists('products', 'idx_products_category', 'ALTER TABLE products ADD INDEX idx_products_category (category)');
   await ensureIndexExists('products', 'idx_products_section', 'ALTER TABLE products ADD INDEX idx_products_section (section)');
   await ensureIndexExists('orders', 'idx_orders_status', 'ALTER TABLE orders ADD INDEX idx_orders_status (status)');
@@ -348,6 +390,21 @@ async function initDatabase() {
     'orders',
     'idx_orders_received_at',
     'ALTER TABLE orders ADD INDEX idx_orders_received_at (received_at)'
+  );
+  await ensureIndexExists(
+    'product_reviews',
+    'idx_product_reviews_admin_replied_by',
+    'ALTER TABLE product_reviews ADD INDEX idx_product_reviews_admin_replied_by (admin_replied_by)'
+  );
+  await ensureForeignKeyExists(
+    'product_reviews',
+    'product_reviews_admin_replied_by_fk',
+    'ALTER TABLE product_reviews ADD CONSTRAINT product_reviews_admin_replied_by_fk FOREIGN KEY (admin_replied_by) REFERENCES users(id) ON DELETE SET NULL'
+  );
+  await ensureIndexExists(
+    'password_reset_requests',
+    'idx_password_reset_requests_status',
+    'ALTER TABLE password_reset_requests ADD INDEX idx_password_reset_requests_status (status)'
   );
 }
 
@@ -373,6 +430,19 @@ async function ensureIndexExists(tableName, indexName, alterSql) {
      FROM information_schema.STATISTICS
      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?`,
     [dbName, tableName, indexName]
+  );
+
+  if (!count) {
+    await pool.execute(alterSql);
+  }
+}
+
+async function ensureForeignKeyExists(tableName, constraintName, alterSql) {
+  const [[{ count }]] = await pool.execute(
+    `SELECT COUNT(*) AS count
+     FROM information_schema.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND CONSTRAINT_NAME = ? AND CONSTRAINT_TYPE = 'FOREIGN KEY'`,
+    [dbName, tableName, constraintName]
   );
 
   if (!count) {

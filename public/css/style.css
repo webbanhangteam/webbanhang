@@ -1542,6 +1542,39 @@ a {
     background: #000;
 }
 
+.auth-link-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    border: 0;
+    color: var(--ink);
+    background: transparent;
+    font-weight: 800;
+}
+
+.auth-link-btn:hover {
+    color: var(--accent-dark);
+}
+
+.auth-textarea {
+    width: 100%;
+    min-height: 92px;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--soft);
+    color: var(--ink);
+    font-weight: 700;
+    resize: vertical;
+}
+
+.auth-textarea:focus {
+    border-color: var(--ink);
+    background: white;
+    outline: none;
+}
+
 .auth-message-v2 {
     min-height: 22px;
     margin: 0;
@@ -2891,6 +2924,18 @@ a {
     font-weight: 800;
 }
 
+.admin-review-reply {
+    max-width: 280px;
+    color: var(--muted);
+    font-size: 0.82rem;
+    line-height: 1.5;
+}
+
+.admin-table .bi-star-fill,
+.admin-table .bi-star {
+    color: #f59e0b;
+}
+
 .sale-pill {
     display: inline-flex;
     align-items: center;
@@ -3190,6 +3235,24 @@ a {
 .review-card small,
 .review-status {
     margin: 0;
+    color: var(--muted);
+}
+
+.review-admin-reply {
+    display: grid;
+    gap: 4px;
+    padding: 10px 12px;
+    border-left: 3px solid var(--ink);
+    border-radius: 8px;
+    background: var(--soft);
+}
+
+.review-admin-reply strong {
+    color: var(--ink);
+    font-size: 0.82rem;
+}
+
+.review-admin-reply p {
     color: var(--muted);
 }
 
